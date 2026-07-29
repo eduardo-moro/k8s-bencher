@@ -1,0 +1,13 @@
+name: httpbin-example
+manifest: manifests/httpbin.yaml
+container: httpbin
+script: loadtest/httpbin.js
+resources:
+  memory: [128Mi, 256Mi]
+  cpu: [100m, 250m]
+load:
+  vus: 15
+  stages:
+    - {duration: 10s, target: 15}
+    - {duration: 30s, target: 15}
+    - {duration: 5s, target: 0}

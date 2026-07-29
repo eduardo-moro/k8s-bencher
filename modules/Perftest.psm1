@@ -115,4 +115,33 @@ function Get-PerftestResourceCombos {
     $combos
 }
 
-Export-ModuleMember -Function New-PerftestCluster, Remove-PerftestCluster, Get-PerftestConfig, Get-PerftestResourceCombos
+function Deploy-PerftestApp {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)]
+        [PSCustomObject]$Config
+    )
+
+    kubectl apply -f $Config.manifest
+    if ($LASTEXITCODE -ne 0) { throw "kubectl apply of '$($Config.manifest)' failed with exit code $LASTEXITCODE" }
+
+    kubectl rollout status "deployment/$($Config.container)" --timeout=120s
+    if ($LASTEXITCODE -ne 0) { throw "rollout of deployment/$($Config.container) failed with exit code $LASTEXITCODE" }
+}
+
+function Publish-PerftestLoadScript {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)]
+        [PSCustomObject]$Config
+    )
+
+    $scriptFileName = Split-Path -Leaf $Config.script
+    $yaml = kubectl create configmap k6-script "--from-file=${scriptFileName}=$($Config.script)" --dry-run=client -o yaml
+    if ($LASTEXITCODE -ne 0) { throw "kubectl create configmap (dry-run) failed with exit code $LASTEXITCODE" }
+
+    $yaml | kubectl apply -f -
+    if ($LASTEXITCODE -ne 0) { throw "kubectl apply of k6-script ConfigMap failed with exit code $LASTEXITCODE" }
+}
+
+Export-ModuleMember -Function New-PerftestCluster, Remove-PerftestCluster, Get-PerftestConfig, Get-PerftestResourceCombos, Deploy-PerftestApp, Publish-PerftestLoadScript
