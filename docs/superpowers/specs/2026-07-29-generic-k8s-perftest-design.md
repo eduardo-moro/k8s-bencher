@@ -48,6 +48,11 @@ engine's shape is settled.
   frontend — so there's no separate declarative schema to keep in sync with
   generated JS, and no restriction on chaining requests (e.g. "list documents,
   then fetch a random one from the response") since it's just k6 JS.
+- Documentation. This round is code/structure only — no README rewrite, no
+  docs beyond this spec and inline comments where genuinely non-obvious.
+  Writing user-facing docs is a separate, later pass once the engine's shape
+  has actually been exercised, not something to spend implementation context
+  on now.
 
 ## Repo structure
 
@@ -70,10 +75,16 @@ k8s-perftest/
     manifest.example.yaml       # committed starting point to copy into manifests/
     loadtest.example.js         # committed starting point to copy into loadtest/
   frontend/
-    README.md                   # placeholder; reserved for the Lovable-built app, API spec to follow later
+    .gitkeep                    # placeholder so the empty folder is tracked; reserved for the Lovable-built app
   output/                       # gitignored; each run creates output/<app-name>-<timestamp>/
-  README.md                     # rewritten: generic purpose, prerequisites, quickstart, config schema
 ```
+
+`README.md` at the repo root is left as-is this round — it's stale (still
+describes the Outline-specific historical run) once the old files are
+deleted, but rewriting it is a documentation task, and this round is
+implementation only. Flagged explicitly here so it isn't mistaken for an
+oversight: a follow-up pass should rewrite it once the engine has actually
+been exercised end-to-end and its real shape is known.
 
 `manifests/`, `loadtest/`, and `configs/` hold each dev's real, per-app
 artifacts — gitignored, local-only, the same way `output/` already is. This
@@ -133,7 +144,7 @@ Field notes:
   any normal Kubernetes manifest. `templates/manifest.example.yaml` shows the
   pattern (single container, HTTP readiness/liveness probe, plain env vars —
   consistent with this being a disposable local `kind` cluster, not a
-  production secrets story; the README calls this out explicitly).
+  production secrets story).
 - `resources.memory`/`resources.cpu` replace the hardcoded 4×3 matrix; any
   length lists are supported, cross-producted the same way.
 - `load.vus`/`load.stages` are passed to the k6 script as env vars
@@ -183,8 +194,8 @@ dependency used by `run-matrix.sh` today.
   - `.\perftest.ps1 -Full -Config configs\my-app.yaml` (same, plus teardown after)
 - `Makefile` stays as a thin optional wrapper for Git Bash/`make` users,
   forwarding each target to the equivalent `pwsh -File perftest.ps1 ...` call.
-  It is not the primary documented interface; the README leads with the
-  PowerShell commands.
+  PowerShell (`perftest.ps1`) is the primary interface; `Makefile` is a
+  convenience wrapper, not the other way around.
 
 ## Future API readiness (not designed now)
 
@@ -198,9 +209,9 @@ brainstorming round, once there's a concrete frontend to design it against.
 
 ## Frontend folder
 
-`frontend/README.md` only, stating the folder is reserved for the
-Lovable-built frontend and that an API specification will be provided in a
-future conversation. No scaffolding, no framework choice made now.
+`frontend/.gitkeep` only, so the empty folder is tracked. No scaffolding, no
+framework choice, no README — reserved for the Lovable-built frontend once an
+API specification is designed in a future conversation.
 
 ## Validation
 
