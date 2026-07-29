@@ -43,9 +43,11 @@ engine's shape is settled.
   reports, bisecting search). Output is raw per-run data
   (`results.csv` + k6 JSON + `kubectl top` logs); turning that into a
   narrative recommendation is a manual/future step.
-- Request chaining in the declarative load format (e.g. "list documents, then
-  fetch a random one from the response"). Declarative `requests` are static;
-  stateful flows require the raw k6 script escape hatch (`load.script`).
+- A declarative (non-JS) load-request format. `loadtest/<app>.js` is always a
+  real k6 script — hand-written now, possibly form-generated later by the
+  frontend — so there's no separate declarative schema to keep in sync with
+  generated JS, and no restriction on chaining requests (e.g. "list documents,
+  then fetch a random one from the response") since it's just k6 JS.
 
 ## Repo structure
 
@@ -54,75 +56,92 @@ k8s-perftest/
   perftest.ps1                  # CLI entrypoint: parses args, calls module functions
   Makefile                      # thin wrapper for Git Bash users: make test CONFIG=... -> pwsh
   modules/
-    Perftest.psm1               # core logic: cluster, deploy, load-script generation, matrix, results
+    Perftest.psm1               # core logic: cluster, deploy, matrix, results
   manifests/
-    kind-config.yaml            # generic kind cluster config
-    app-template.yaml           # generic Deployment+Service template (placeholders, see below)
-    k6-job-template.yaml        # generic k6 Job template
+    kind-config.yaml            # generic kind cluster config (committed, infra-level, not per-app)
+    k6-job-template.yaml        # generic k6 Job wrapper (committed, infra-level: runs whatever script+VUs/stages it's given)
+    <app>.yaml                  # gitignored; real per-app Deployment+Service, one file per app under test
+  loadtest/
+    <app>.js                    # gitignored; real per-app k6 script, one file per app under test
   configs/
-    example.config.yaml         # one worked example (public test image), so the repo isn't an empty skeleton
+    <app>.yaml                  # gitignored; per-app test parameters (matrix, load shape, file pointers)
+  templates/
+    config.example.yaml         # committed starting point to copy into configs/
+    manifest.example.yaml       # committed starting point to copy into manifests/
+    loadtest.example.js         # committed starting point to copy into loadtest/
   frontend/
     README.md                   # placeholder; reserved for the Lovable-built app, API spec to follow later
   output/                       # gitignored; each run creates output/<app-name>-<timestamp>/
   README.md                     # rewritten: generic purpose, prerequisites, quickstart, config schema
 ```
 
+`manifests/`, `loadtest/`, and `configs/` hold each dev's real, per-app
+artifacts — gitignored, local-only, the same way `output/` already is. This
+keeps the repo itself a pure reusable tool that never accumulates every
+team's app definitions; `templates/` ships the one example of each file type
+(a small public test image manifest, matching k6 script, and config) that a
+dev copies as their starting point. This also directly supports the planned
+Lovable frontend: a "simple mode" (form) or "advanced mode" (YAML/JS editor)
+both just read and write these same three files — no special-casing between
+generated and hand-written content.
+
+`manifests/kind-config.yaml` and `manifests/k6-job-template.yaml` are the two
+exceptions in that folder: infra-level, committed, not per-app. `.gitignore`
+ignores `manifests/*.yaml` with explicit negations
+(`!manifests/kind-config.yaml`, `!manifests/k6-job-template.yaml`) so per-app
+manifests stay local while these two stay tracked.
+
 Deleted entirely (per explicit decision, not archived): `manifests/outline.yaml`,
-`manifests/postgres.yaml`, `manifests/redis.yaml`, `loadtest/`,
-`generate-secret.sh`, `seed-db.sh`, `create-cluster.sh`, `run-matrix.sh`,
-`teardown.sh`, `plans/`, `specs/` (old Outline spec/plan), `relatorio-resultados.md`,
-`results/`, `tmp-out/`.
+`manifests/postgres.yaml`, `manifests/redis.yaml`, `loadtest/outline-load.js`,
+`loadtest/smoke-test-job.yaml`, `generate-secret.sh`, `seed-db.sh`,
+`create-cluster.sh`, `run-matrix.sh`, `teardown.sh`, `plans/`, `specs/` (old
+Outline spec/plan), `relatorio-resultados.md`, `results/`, `tmp-out/`.
 
 ## Test config schema
 
-One YAML file fully describes a run. Example (`configs/example.config.yaml`):
+`manifests/<app>.yaml` and `loadtest/<app>.js` are real, standalone artifacts —
+a plain Kubernetes Deployment+Service, and a plain k6 script — not templates
+with placeholders. `configs/<app>.yaml` just points at them and carries the
+test parameters that aren't part of either file:
 
 ```yaml
 name: my-app
-image: myregistry/myapp:latest
-container:
-  name: app
-  port: 8080
-healthCheck:
-  path: /healthz
-env:
-  DATABASE_URL: postgres://host.docker.internal:5432/mydb
-envFile: ../myapp/.env           # optional; merged in, explicit `env` wins on key conflict
+manifest: manifests/my-app.yaml   # real Deployment+Service; engine applies it as-is
+container: app                     # container name inside that manifest to patch resources on
+script: loadtest/my-app.js         # real k6 script; engine runs it as-is
 resources:
   memory: [256Mi, 384Mi, 512Mi, 768Mi]
-  cpu: [250m, 500m, 1000m]        # full cross product
+  cpu: [250m, 500m, 1000m]          # full cross product
 load:
   vus: 15
   stages:
     - {duration: 20s, target: 15}
     - {duration: 120s, target: 15}
     - {duration: 10s, target: 0}
-  requests:                       # declarative mode; omit if using `script`
-    - name: list_items
-      method: POST
-      path: /api/items.list
-      headers: {Content-Type: application/json}
-      body: '{"limit":25}'
-      weight: 1                   # fraction of iterations this request runs in (1 = always)
-  # script: ./custom-load.js      # raw k6 script, mutually exclusive with `requests`
 ```
 
 Field notes:
-- `container.name`/`container.port`/`healthCheck.path` parameterize
-  `manifests/app-template.yaml` (a Deployment with one container + a Service),
-  replacing today's hardcoded `outline` container/`/_health` path.
-- `env`/`envFile` values are injected as plain (not Secret-backed) env vars —
+- `manifest`/`script` are file paths, not inline content — the engine never
+  parses or renders their contents beyond applying/running them, and
+  `kubectl set resources -c <container>` only needs the container name, not
+  image/port/health-check details. This removes the placeholder-substitution
+  layer for the app manifest entirely: no `app-template.yaml` to maintain.
+  (`manifests/k6-job-template.yaml` still exists, but it's infra-level — the
+  generic k6-runner Job wrapper, not something per-app.)
+- Whatever env vars, health checks, secrets-as-plain-env, image, and ports the
+  service needs are just written directly into `manifests/<app>.yaml`, like
+  any normal Kubernetes manifest. `templates/manifest.example.yaml` shows the
+  pattern (single container, HTTP readiness/liveness probe, plain env vars —
   consistent with this being a disposable local `kind` cluster, not a
-  production secrets story. The README will call this out explicitly as a
-  local-only tool.
+  production secrets story; the README calls this out explicitly).
 - `resources.memory`/`resources.cpu` replace the hardcoded 4×3 matrix; any
   length lists are supported, cross-producted the same way.
-- `load.requests[].weight` mirrors today's "10% of iterations write" pattern
-  (`Math.random() < weight` in the generated script) — no dedicated syntax for
-  richer distributions.
-- `load.script`, when present, is used verbatim instead of a generated script;
-  it still receives `BASE_URL`, `VUS`, and stage timings as env vars so a
-  custom script can read the same tunables uniformly.
+- `load.vus`/`load.stages` are passed to the k6 script as env vars
+  (`VUS`, stage timings) so `loadtest/<app>.js` can read them uniformly,
+  the same way `OUTLINE_URL`/`VUS` are read today. The script itself defines
+  its own requests/weights in k6 JS directly (e.g. the existing 90%-read/
+  10%-write pattern) — there is no separate declarative request format to
+  keep in sync with a generated script, since the script *is* the artifact.
 
 ## Core engine flow
 
@@ -133,19 +152,18 @@ Implemented as functions in `modules/Perftest.psm1`, called both by
   same skip-if-exists behavior as today's `create-cluster.sh`), generic naming
   (no "outline" in cluster name), no MSYS/WSL path workarounds needed under
   native PowerShell.
-- `Deploy-PerftestApp -Config <path>` — renders `app-template.yaml` with the
-  config's image/container/port/health-check/env, applies it via `kubectl`,
-  waits for rollout.
-- `Build-PerftestLoadScript -Config <path>` — generates a k6 script from
-  `load.requests` (weighted per-request execution, same shape as today's
-  `outline-load.js` but generic field names), or returns the path to
-  `load.script` unchanged if provided. Publishes the script into a ConfigMap
-  the same way `k6-config` does today.
+- `Deploy-PerftestApp -Config <path>` — `kubectl apply -f` the config's
+  `manifest` file as-is, waits for rollout. No rendering/templating step.
+- `Publish-PerftestLoadScript -Config <path>` — publishes the config's
+  `script` file into a ConfigMap (`kubectl create configmap ... --from-file`),
+  same mechanism as today's `k6-config` Makefile target.
 - `Invoke-PerftestMatrix -Config <path>` — cross-products
-  `resources.memory` × `resources.cpu`; for each pair: patch the Deployment's
-  resources, wait for rollout, sample `kubectl top` in the background, run a
-  k6 Job (rendered from `k6-job-template.yaml` with `load.vus`/`load.stages`),
-  poll for completion, detect `OOMKilled`/restart count, append one row to
+  `resources.memory` × `resources.cpu`; for each pair: patch the named
+  `container`'s resources on the Deployment, wait for rollout, sample
+  `kubectl top` in the background, run a k6 Job (from
+  `manifests/k6-job-template.yaml`, mounting the published script ConfigMap
+  and injecting `load.vus`/`load.stages` as env vars), poll for completion,
+  detect `OOMKilled`/restart count, append one row to
   `output/<name>-<run-id>/results.csv`. Same incremental-append behavior as
   today (a crash mid-matrix doesn't lose prior rows).
 - `Remove-PerftestCluster` — tears down the kind cluster.
@@ -186,8 +204,11 @@ future conversation. No scaffolding, no framework choice made now.
 
 ## Validation
 
-- Manually run `.\perftest.ps1 -All -Config configs\example.config.yaml`
-  against the example config (a small public test image, e.g. `httpbin`) to
-  confirm the full pipeline works end-to-end natively on Windows: cluster
-  creation, generic manifest deploy, generated k6 script execution, matrix
-  loop, `results.csv` output — before considering the engine done.
+- Copy `templates/config.example.yaml` → `configs/example.yaml`,
+  `templates/manifest.example.yaml` → `manifests/example.yaml`, and
+  `templates/loadtest.example.js` → `loadtest/example.js` (a small public test
+  image, e.g. `httpbin`), then manually run
+  `.\perftest.ps1 -All -Config configs\example.yaml` to confirm the full
+  pipeline works end-to-end natively on Windows: cluster creation, manifest
+  apply, k6 script execution, matrix loop, `results.csv` output — before
+  considering the engine done.
