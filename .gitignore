@@ -1,0 +1,7 @@
+# Generated secret manifest - contains base64-encoded secrets from .env
+# DO NOT commit this file to version control
+manifests/outline-secret.yaml
+
+# Scratch output from run-matrix.sh (per-combination k6/top raw output) -
+# results/matrix-results.csv is the actual source of truth, not these.
+tmp-out/
