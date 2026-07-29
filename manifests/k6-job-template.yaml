@@ -1,0 +1,27 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: k6-loadtest
+spec:
+  backoffLimit: 0
+  template:
+    spec:
+      restartPolicy: Never
+      containers:
+        - name: k6
+          image: grafana/k6:latest
+          command: ["sh", "-c", "PLACEHOLDER"]
+          env:
+            - name: VUS
+              value: "PLACEHOLDER"
+          volumeMounts:
+            - name: script
+              mountPath: /scripts
+            - name: results
+              mountPath: /results
+      volumes:
+        - name: script
+          configMap:
+            name: k6-script
+        - name: results
+          emptyDir: {}

@@ -144,4 +144,118 @@ function Publish-PerftestLoadScript {
     if ($LASTEXITCODE -ne 0) { throw "kubectl apply of k6-script ConfigMap failed with exit code $LASTEXITCODE" }
 }
 
-Export-ModuleMember -Function New-PerftestCluster, Remove-PerftestCluster, Get-PerftestConfig, Get-PerftestResourceCombos, Deploy-PerftestApp, Publish-PerftestLoadScript
+function Start-PerftestK6Job {
+    param(
+        [Parameter(Mandatory)] [PSCustomObject]$Config,
+        [Parameter(Mandatory)] [string]$ScriptFileName,
+        [Parameter(Mandatory)] [string]$OutFile
+    )
+
+    $repoRoot = Split-Path -Parent $PSScriptRoot
+    $jobTemplatePath = Join-Path $repoRoot 'manifests/k6-job-template.yaml'
+    $job = Get-Content -Path $jobTemplatePath -Raw | ConvertFrom-Yaml
+
+    $stageFlags = ($Config.load.stages | ForEach-Object { "--stage $($_.duration):$($_.target)" }) -join ' '
+    # k6's default --summary-trend-stats is 'avg,min,med,max,p(90),p(95)' and never includes
+    # p(99), so it must be requested explicitly or the summary JSON below has no p(99) key.
+    $k6Command = "k6 run --summary-export=/results/summary.json --summary-trend-stats='avg,min,med,max,p(90),p(95),p(99)' $stageFlags /scripts/$ScriptFileName; ec=`$?; touch /results/done; sleep 20; exit `$ec"
+
+    $job.spec.template.spec.containers[0].command = @('sh', '-c', $k6Command)
+    $job.spec.template.spec.containers[0].env[0].value = [string]$Config.load.vus
+
+    kubectl delete job k6-loadtest --ignore-not-found | Out-Null
+    ($job | ConvertTo-Yaml) | kubectl apply -f -
+    if ($LASTEXITCODE -ne 0) { throw "kubectl apply of k6-loadtest Job failed with exit code $LASTEXITCODE" }
+
+    $pod = $null
+    $waited = 0
+    while (-not $pod -and $waited -lt 30) {
+        $pod = kubectl get pods -l job-name=k6-loadtest -o jsonpath='{.items[0].metadata.name}' 2>$null
+        if (-not $pod) { Start-Sleep -Seconds 2; $waited += 2 }
+    }
+    if (-not $pod) { throw "k6 pod never appeared" }
+
+    $waited = 0
+    while ($true) {
+        kubectl exec $pod -- test -f /results/done 2>$null
+        if ($LASTEXITCODE -eq 0) { break }
+        Start-Sleep -Seconds 5
+        $waited += 5
+        if ($waited -ge 240) { throw "Timed out waiting for k6 job '$pod' to finish" }
+    }
+
+    kubectl cp "${pod}:/results/summary.json" $OutFile
+    if ($LASTEXITCODE -ne 0) { throw "kubectl cp of k6 summary.json failed with exit code $LASTEXITCODE" }
+}
+
+function Invoke-PerftestMatrix {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)] [PSCustomObject]$Config,
+        [Parameter(Mandatory)] [string]$OutputDir
+    )
+
+    New-Item -ItemType Directory -Path $OutputDir -Force | Out-Null
+    $resultsPath = Join-Path $OutputDir 'results.csv'
+    if (-not (Test-Path $resultsPath)) {
+        'memory,cpu,start_time,end_time,duration_seconds,p95_ms,p99_ms,error_rate,http_reqs_total,oom_killed,restart_count' |
+            Set-Content -Path $resultsPath
+    }
+
+    $scriptFileName = Split-Path -Leaf $Config.script
+    $combos = Get-PerftestResourceCombos -Resources $Config.resources
+
+    foreach ($combo in $combos) {
+        $mem = $combo.memory
+        $cpu = $combo.cpu
+        Write-Host "=== Testing memory=$mem cpu=$cpu ==="
+        $startTime = Get-Date
+
+        kubectl set resources "deployment/$($Config.container)" -c $Config.container `
+            --limits="cpu=$cpu,memory=$mem" --requests="cpu=$cpu,memory=$mem"
+        if ($LASTEXITCODE -ne 0) { throw "kubectl set resources failed with exit code $LASTEXITCODE" }
+
+        kubectl rollout status "deployment/$($Config.container)" --timeout=120s
+        if ($LASTEXITCODE -ne 0) { throw "rollout after resource patch failed with exit code $LASTEXITCODE" }
+        Start-Sleep -Seconds 5
+
+        $pod = kubectl get pod -l "app=$($Config.container)" --field-selector=status.phase=Running -o jsonpath='{.items[0].metadata.name}'
+
+        $topLog = Join-Path $OutputDir "top-$mem-$cpu.log"
+        $samplerJob = Start-Job -ScriptBlock {
+            param($podName, $logPath)
+            while ($true) {
+                kubectl top pod $podName --no-headers *>> $logPath
+                Start-Sleep -Seconds 10
+            }
+        } -ArgumentList $pod, $topLog
+
+        $k6Out = Join-Path $OutputDir "k6-$mem-$cpu.json"
+        Start-PerftestK6Job -Config $Config -ScriptFileName $scriptFileName -OutFile $k6Out
+
+        Stop-Job $samplerJob -ErrorAction SilentlyContinue | Out-Null
+        Remove-Job $samplerJob -Force -ErrorAction SilentlyContinue | Out-Null
+
+        $restartCount = kubectl get pod $pod -o jsonpath='{.status.containerStatuses[0].restartCount}'
+        $lastReason = kubectl get pod $pod -o jsonpath='{.status.containerStatuses[0].lastState.terminated.reason}' 2>$null
+        $oomFlag = if ($lastReason -eq 'OOMKilled') { 'yes' } else { 'no' }
+
+        $metrics = Get-Content -Path $k6Out -Raw | ConvertFrom-Json
+        $p95 = $metrics.metrics.http_req_duration.'p(95)'
+        $p99 = $metrics.metrics.http_req_duration.'p(99)'
+        $errRate = $metrics.metrics.http_req_failed.value
+        $httpReqsTotal = $metrics.metrics.http_reqs.count
+
+        $endTime = Get-Date
+        $durationSeconds = [int]($endTime - $startTime).TotalSeconds
+
+        "$mem,$cpu,$($startTime.ToString('o')),$($endTime.ToString('o')),$durationSeconds,$p95,$p99,$errRate,$httpReqsTotal,$oomFlag,$restartCount" |
+            Add-Content -Path $resultsPath
+
+        Write-Host "--- result: mem=$mem cpu=$cpu duration=${durationSeconds}s p95=${p95}ms err_rate=$errRate oom=$oomFlag restarts=$restartCount ---"
+    }
+
+    Write-Host "Matrix complete. Results in $resultsPath"
+}
+
+Export-ModuleMember -Function New-PerftestCluster, Remove-PerftestCluster, Get-PerftestConfig, Get-PerftestResourceCombos, Deploy-PerftestApp, Publish-PerftestLoadScript, Invoke-PerftestMatrix
