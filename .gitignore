@@ -1,7 +1,13 @@
-# Generated secret manifest - contains base64-encoded secrets from .env
-# DO NOT commit this file to version control
-manifests/outline-secret.yaml
+# Per-app artifacts are local to each dev/app — never committed. Only the
+# infra-level files below (kind cluster config, k6 Job wrapper) are tracked.
+manifests/*.yaml
+!manifests/kind-config.yaml
+!manifests/k6-job-template.yaml
+loadtest/*.js
+configs/*.yaml
 
-# Scratch output from run-matrix.sh (per-combination k6/top raw output) -
-# results/matrix-results.csv is the actual source of truth, not these.
-tmp-out/
+# Every test run's raw output.
+output/
+
+.claude/
+.superpowers/
