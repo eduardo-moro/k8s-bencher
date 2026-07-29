@@ -47,4 +47,72 @@ function Remove-PerftestCluster {
     if ($LASTEXITCODE -ne 0) { throw "kind delete cluster failed with exit code $LASTEXITCODE" }
 }
 
-Export-ModuleMember -Function New-PerftestCluster, Remove-PerftestCluster
+function Assert-PerftestYamlModule {
+    if (-not (Get-Module -ListAvailable -Name powershell-yaml)) {
+        Write-Host "Installing powershell-yaml module (one-time)..."
+        Install-Module -Name powershell-yaml -Scope CurrentUser -Force -ErrorAction Stop
+    }
+    Import-Module powershell-yaml -ErrorAction Stop
+}
+
+function Get-PerftestConfig {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)]
+        [string]$Path,
+        [string]$RepoRoot = (Split-Path -Parent $PSScriptRoot)
+    )
+
+    Assert-PerftestYamlModule
+    $raw = Get-Content -Path $Path -Raw | ConvertFrom-Yaml
+
+    foreach ($required in 'manifest', 'container', 'script') {
+        if (-not $raw.ContainsKey($required) -or [string]::IsNullOrWhiteSpace($raw[$required])) {
+            throw "Config '$Path' is missing required field '$required'."
+        }
+    }
+    if (-not $raw.ContainsKey('resources') -or -not $raw.resources.ContainsKey('memory') -or -not $raw.resources.memory) {
+        throw "Config '$Path' is missing required field 'resources.memory'."
+    }
+    if (-not $raw.resources.ContainsKey('cpu') -or -not $raw.resources.cpu) {
+        throw "Config '$Path' is missing required field 'resources.cpu'."
+    }
+
+    $stages = @()
+    foreach ($stage in $raw.load.stages) {
+        $stages += [PSCustomObject]@{ duration = [string]$stage.duration; target = [int]$stage.target }
+    }
+
+    [PSCustomObject]@{
+        name      = $raw.name
+        manifest  = [System.IO.Path]::GetFullPath((Join-Path $RepoRoot $raw.manifest))
+        container = $raw.container
+        script    = [System.IO.Path]::GetFullPath((Join-Path $RepoRoot $raw.script))
+        resources = [PSCustomObject]@{
+            memory = @($raw.resources.memory)
+            cpu    = @($raw.resources.cpu)
+        }
+        load      = [PSCustomObject]@{
+            vus    = [int]$raw.load.vus
+            stages = $stages
+        }
+    }
+}
+
+function Get-PerftestResourceCombos {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)]
+        [PSCustomObject]$Resources
+    )
+
+    $combos = @()
+    foreach ($memory in $Resources.memory) {
+        foreach ($cpu in $Resources.cpu) {
+            $combos += [PSCustomObject]@{ memory = $memory; cpu = $cpu }
+        }
+    }
+    $combos
+}
+
+Export-ModuleMember -Function New-PerftestCluster, Remove-PerftestCluster, Get-PerftestConfig, Get-PerftestResourceCombos
