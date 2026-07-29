@@ -148,12 +148,14 @@ function Start-PerftestK6Job {
     param(
         [Parameter(Mandatory)] [PSCustomObject]$Config,
         [Parameter(Mandatory)] [string]$ScriptFileName,
-        [Parameter(Mandatory)] [string]$OutFile
+        [Parameter(Mandatory)] [string]$OutFile,
+        [Parameter(Mandatory)] [string]$JobName
     )
 
     $repoRoot = Split-Path -Parent $PSScriptRoot
     $jobTemplatePath = Join-Path $repoRoot 'manifests/k6-job-template.yaml'
     $job = Get-Content -Path $jobTemplatePath -Raw | ConvertFrom-Yaml
+    $job.metadata.name = $JobName
 
     $stageFlags = ($Config.load.stages | ForEach-Object { "--stage $($_.duration):$($_.target)" }) -join ' '
     # k6's default --summary-trend-stats is 'avg,min,med,max,p(90),p(95)' and never includes
@@ -163,14 +165,18 @@ function Start-PerftestK6Job {
     $job.spec.template.spec.containers[0].command = @('sh', '-c', $k6Command)
     $job.spec.template.spec.containers[0].env[0].value = [string]$Config.load.vus
 
-    kubectl delete job k6-loadtest --ignore-not-found | Out-Null
+    # Each combo gets its own uniquely-named Job (see $JobName), so there is no window
+    # where an old combo's pod and the new combo's pod share the same job-name label —
+    # this delete is just idempotency for a re-run of the same combo, not the source of
+    # cross-combo pod-discovery races.
+    kubectl delete job $JobName --ignore-not-found | Out-Null
     ($job | ConvertTo-Yaml) | kubectl apply -f -
-    if ($LASTEXITCODE -ne 0) { throw "kubectl apply of k6-loadtest Job failed with exit code $LASTEXITCODE" }
+    if ($LASTEXITCODE -ne 0) { throw "kubectl apply of $JobName Job failed with exit code $LASTEXITCODE" }
 
     $pod = $null
     $waited = 0
     while (-not $pod -and $waited -lt 30) {
-        $pod = kubectl get pods -l job-name=k6-loadtest -o jsonpath='{.items[0].metadata.name}' 2>$null
+        $pod = kubectl get pods -l job-name=$JobName -o jsonpath='{.items[0].metadata.name}' 2>$null
         if (-not $pod) { Start-Sleep -Seconds 2; $waited += 2 }
     }
     if (-not $pod) { throw "k6 pod never appeared" }
@@ -231,7 +237,11 @@ function Invoke-PerftestMatrix {
         } -ArgumentList $pod, $topLog
 
         $k6Out = Join-Path $OutputDir "k6-$mem-$cpu.json"
-        Start-PerftestK6Job -Config $Config -ScriptFileName $scriptFileName -OutFile $k6Out
+        # Unique per-combo Job name (lowercased: k8s object names must be lowercase,
+        # and resource strings like "256Mi"/"250m" contain uppercase letters) so that
+        # no two combos' Jobs/pods ever share a job-name label value.
+        $jobName = "k6-loadtest-$($mem.ToLower())-$($cpu.ToLower())"
+        Start-PerftestK6Job -Config $Config -ScriptFileName $scriptFileName -OutFile $k6Out -JobName $jobName
 
         Stop-Job $samplerJob -ErrorAction SilentlyContinue | Out-Null
         Remove-Job $samplerJob -Force -ErrorAction SilentlyContinue | Out-Null
