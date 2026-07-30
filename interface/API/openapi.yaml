@@ -1,0 +1,608 @@
+openapi: 3.0.3
+info:
+  title: perftest-api
+  description: |
+    Local, single-user API for k8s-perftest. Lets a client configure apps
+    (config/manifest/k6-script CRUD), trigger a full resource-matrix perftest
+    run against a disposable local `kind` cluster, and read past runs'
+    results — entirely by editing/reading the files `perftest.ps1` already
+    reads/writes. The API never imports the PowerShell engine in-process; it
+    only spawns `perftest.ps1` as a child process and shells out to `kubectl`
+    indirectly through it.
+
+    No authentication — this is a local dev tool with the same trust model
+    as running `perftest.ps1` directly from a terminal.
+
+    Only one run can be active at a time (the underlying engine only manages
+    one fixed-name `kind` cluster). `POST /apps/{name}/runs` returns 409 if a
+    run is already in progress.
+  version: "1.0.0"
+servers:
+  - url: http://localhost:3001
+    description: Local dev server (default port; override with the PORT env var)
+
+tags:
+  - name: health
+  - name: apps
+    description: CRUD over per-app config/manifest/k6-script
+  - name: runs
+    description: Trigger and observe a perftest run
+  - name: outputs
+    description: Read past runs' results.csv
+  - name: check
+    description: Verify local prerequisites (kind/kubectl/k6/docker/powershell-yaml)
+
+paths:
+  /health:
+    get:
+      tags: [health]
+      summary: Liveness check
+      operationId: getHealth
+      responses:
+        "200":
+          description: Server is up
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [ok]
+                properties:
+                  ok:
+                    type: boolean
+                    example: true
+
+  /check:
+    get:
+      tags: [check]
+      summary: Verify local prerequisites (kind, kubectl, k6, docker, powershell-yaml)
+      description: >-
+        Wraps `pwsh -File perftest.ps1 -Check`. Always returns 200 — a failed
+        check is represented in-band via `ready: false`, never as an HTTP
+        error status.
+      operationId: getCheck
+      responses:
+        "200":
+          description: Prerequisite check result
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CheckResult"
+
+  /apps:
+    get:
+      tags: [apps]
+      summary: List all configured apps
+      operationId: listApps
+      responses:
+        "200":
+          description: Array of app summaries (empty array if none configured)
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/AppSummary"
+    post:
+      tags: [apps]
+      summary: Create a new app
+      description: >-
+        Writes `configs/{name}.yaml`, `manifests/{name}.yaml`,
+        `loadtest/{name}.js`. Enforces that convention regardless of what
+        pre-existing configs might use.
+      operationId: createApp
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AppDetail"
+      responses:
+        "201":
+          description: App created; returns the freshly-read detail
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AppDetail"
+        "400":
+          description: Request body failed JSON-schema validation (missing/malformed field)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SchemaValidationError"
+        "409":
+          description: An app with this name already exists
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /apps/{name}:
+    parameters:
+      - $ref: "#/components/parameters/AppName"
+    get:
+      tags: [apps]
+      summary: Get one app's full detail (config + manifest + script)
+      operationId: getApp
+      responses:
+        "200":
+          description: App detail
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AppDetail"
+        "404":
+          description: No app with this name
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+    put:
+      tags: [apps]
+      summary: Update an app (partial)
+      description: >-
+        Body is a partial `AppDetail` — any subset of fields. Only
+        `manifestContent`/`scriptContent` are conditionally rewritten (only
+        if present in the body); `container`/`resources`/`load` fall back to
+        existing values when omitted. The app cannot be renamed via this
+        endpoint (a `name` field in the body is ignored). **No JSON-schema
+        validation is applied to this body** — any object is accepted.
+      operationId: updateApp
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AppDetailPartial"
+      responses:
+        "200":
+          description: Updated app detail
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AppDetail"
+        "404":
+          description: No app with this name
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+    delete:
+      tags: [apps]
+      summary: Delete an app
+      description: Force-removes the manifest, script, and config files (no error if a sub-path is already gone).
+      operationId: deleteApp
+      responses:
+        "204":
+          description: Deleted
+        "404":
+          description: No app with this name
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /templates/example:
+    get:
+      tags: [apps]
+      summary: Get the bundled httpbin example, to pre-fill a "create app" form
+      operationId: getTemplateExample
+      responses:
+        "200":
+          description: Example app detail
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AppDetail"
+
+  /apps/{name}/runs:
+    parameters:
+      - $ref: "#/components/parameters/AppName"
+    post:
+      tags: [runs]
+      summary: Trigger a full perftest run for this app
+      description: >-
+        Spawns `pwsh -File perftest.ps1 -Full -Config configs/{name}.yaml` as
+        a background child process (cluster create if needed, deploy,
+        resource-matrix sweep, teardown) and returns immediately. Poll
+        `GET /jobs/current` for progress.
+      operationId: startRun
+      responses:
+        "202":
+          description: Run started (job's status may already read "running" by the time you inspect the response)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/JobState"
+        "404":
+          description: No app with this name
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "409":
+          description: A run is already in progress (only one job slot exists)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /jobs/current:
+    get:
+      tags: [runs]
+      summary: Get the current/most recent job's status
+      description: >-
+        Reflects the single in-memory job slot. There is no run history
+        beyond the most recent job — once a new run starts, the previous
+        job's state is gone (its results remain readable via
+        `/apps/{name}/outputs` regardless).
+      operationId: getCurrentJob
+      responses:
+        "200":
+          description: Current job state
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/JobState"
+        "404":
+          description: No job has run yet this server session
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+    delete:
+      tags: [runs]
+      summary: Cancel the current run
+      description: >-
+        Escape hatch for a stuck run: kills the child process if any, then
+        runs `perftest.ps1 -Teardown` as best-effort cleanup, then clears the
+        job slot unconditionally — always returns 200, even if nothing was
+        running.
+      operationId: cancelCurrentJob
+      responses:
+        "200":
+          description: Job slot cleared
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [cancelled]
+                properties:
+                  cancelled:
+                    type: boolean
+                    example: true
+
+  /apps/{name}/outputs:
+    parameters:
+      - $ref: "#/components/parameters/AppName"
+    get:
+      tags: [outputs]
+      summary: List past run output folders for this app
+      description: >-
+        Matches folders under `output/` by the config's *internal* `name:`
+        field (not necessarily the URL app name — see
+        `AppSummary`/`AppDetail`'s `name` note). Sorted newest first.
+      operationId: listOutputs
+      responses:
+        "200":
+          description: Output folders (empty array if none)
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/OutputFolder"
+        "404":
+          description: No app with this name
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /apps/{name}/outputs/{folder}:
+    parameters:
+      - $ref: "#/components/parameters/AppName"
+      - $ref: "#/components/parameters/OutputFolder"
+    get:
+      tags: [outputs]
+      summary: Get one run's results, parsed into typed rows
+      operationId: getOutputResults
+      responses:
+        "200":
+          description: Parsed results
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [rows]
+                properties:
+                  rows:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/ResultRow"
+        "400":
+          description: Malformed `folder` path segment (path traversal guard)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "404":
+          description: Unknown app, folder doesn't belong to this app, or folder not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /apps/{name}/outputs/{folder}/raw:
+    parameters:
+      - $ref: "#/components/parameters/AppName"
+      - $ref: "#/components/parameters/OutputFolder"
+    get:
+      tags: [outputs]
+      summary: Download the raw results.csv for one run
+      operationId: getOutputResultsRaw
+      responses:
+        "200":
+          description: Raw CSV file content
+          content:
+            text/csv:
+              schema:
+                type: string
+        "400":
+          description: Malformed `folder` path segment (path traversal guard)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "404":
+          description: Unknown app, folder doesn't belong to this app, or folder not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+components:
+  parameters:
+    AppName:
+      name: name
+      in: path
+      required: true
+      description: The app's config filename stem (e.g. `configs/httpbin-example.yaml` -> `httpbin-example`)
+      schema:
+        type: string
+    OutputFolder:
+      name: folder
+      in: path
+      required: true
+      description: >-
+        An `output/` subfolder name as returned by `GET /apps/{name}/outputs`
+        (e.g. `httpbin-example-2026-07-30T09-00-00`). Must not contain `..`,
+        `/`, or `\`.
+      schema:
+        type: string
+
+  schemas:
+    StageConfig:
+      type: object
+      required: [duration, target]
+      properties:
+        duration:
+          type: string
+          description: k6 stage duration, e.g. "30s", "2m"
+          example: "30s"
+        target:
+          type: number
+          description: Target number of VUs by the end of this stage
+          example: 15
+
+    ResourcesConfig:
+      type: object
+      required: [memory, cpu]
+      properties:
+        memory:
+          type: array
+          minItems: 1
+          items:
+            type: string
+          description: Kubernetes memory quantities to sweep, e.g. "128Mi"
+          example: ["128Mi", "256Mi", "512Mi"]
+        cpu:
+          type: array
+          minItems: 1
+          items:
+            type: string
+          description: Kubernetes CPU quantities to sweep, e.g. "250m"
+          example: ["100m", "250m", "500m"]
+
+    LoadConfig:
+      type: object
+      required: [vus, stages]
+      properties:
+        vus:
+          type: number
+          example: 15
+        stages:
+          type: array
+          minItems: 1
+          items:
+            $ref: "#/components/schemas/StageConfig"
+
+    AppSummary:
+      type: object
+      required: [name, container, resources]
+      properties:
+        name:
+          type: string
+          description: The config's filename stem (URL app-name identity)
+        container:
+          type: string
+          description: Name of the container inside the Deployment whose resources get patched
+        resources:
+          $ref: "#/components/schemas/ResourcesConfig"
+
+    AppDetail:
+      type: object
+      required: [name, container, resources, load, manifestContent, scriptContent]
+      properties:
+        name:
+          type: string
+          description: >-
+            On GET, this is the config file's *internal* `name:` field,
+            which is not guaranteed to equal the URL app-name for
+            pre-existing configs (it's kept equal by construction for apps
+            created through this API).
+        container:
+          type: string
+        resources:
+          $ref: "#/components/schemas/ResourcesConfig"
+        load:
+          $ref: "#/components/schemas/LoadConfig"
+        manifestContent:
+          type: string
+          description: Raw Kubernetes manifest YAML (Deployment + Service, etc.), verbatim
+        scriptContent:
+          type: string
+          description: Raw k6 script (JavaScript), verbatim
+
+    AppDetailPartial:
+      type: object
+      description: Any subset of AppDetail's fields; `name` is accepted but ignored (renaming isn't supported).
+      properties:
+        container:
+          type: string
+        resources:
+          $ref: "#/components/schemas/ResourcesConfig"
+        load:
+          $ref: "#/components/schemas/LoadConfig"
+        manifestContent:
+          type: string
+        scriptContent:
+          type: string
+
+    JobStatus:
+      type: string
+      enum: [starting, running, done, failed]
+
+    JobState:
+      type: object
+      required: [appName, status, startedAt, logTail]
+      properties:
+        appName:
+          type: string
+          description: The URL app-name this job was started for
+        status:
+          $ref: "#/components/schemas/JobStatus"
+        startedAt:
+          type: string
+          format: date-time
+        finishedAt:
+          type: string
+          format: date-time
+          description: Present once status is "done" or "failed"
+        exitCode:
+          type: integer
+          description: The child process's exit code; present once finished (absent if the process was killed rather than exiting normally)
+        logTail:
+          type: string
+          description: Combined stdout+stderr of the run, capped to the last ~20,000 characters
+        outputDir:
+          type: string
+          description: >-
+            Basename of the `output/` folder this run is writing to, once
+            discovered (polled for in the background; may be absent briefly
+            after the run starts, or for the whole run if the engine never
+            got far enough to create it, e.g. a `-Config` path error).
+
+    OutputFolder:
+      type: object
+      required: [folder, timestamp]
+      properties:
+        folder:
+          type: string
+          example: "httpbin-example-2026-07-30T09-00-00"
+        timestamp:
+          type: string
+          format: date-time
+          description: The output folder's filesystem creation time
+
+    ResultRow:
+      type: object
+      required:
+        [
+          memory,
+          cpu,
+          start_time,
+          end_time,
+          duration_seconds,
+          p95_ms,
+          p99_ms,
+          error_rate,
+          http_reqs_total,
+          oom_killed,
+          restart_count,
+        ]
+      properties:
+        memory:
+          type: string
+          example: "128Mi"
+        cpu:
+          type: string
+          example: "250m"
+        start_time:
+          type: string
+          format: date-time
+        end_time:
+          type: string
+          format: date-time
+        duration_seconds:
+          type: integer
+        p95_ms:
+          type: number
+          nullable: true
+          description: Null if this resource tier never became Ready (rollout timed out) — not zero, not NaN
+        p99_ms:
+          type: number
+          nullable: true
+        error_rate:
+          type: number
+          nullable: true
+          description: Fraction of failed requests (0-1), null if unavailable
+        http_reqs_total:
+          type: integer
+          nullable: true
+        oom_killed:
+          type: boolean
+          description: True only if the container's last termination reason was OOMKilled
+        restart_count:
+          type: integer
+
+    CheckResult:
+      type: object
+      required: [ready, output]
+      properties:
+        ready:
+          type: boolean
+        output:
+          type: string
+          description: Combined stdout+stderr of `perftest.ps1 -Check`, untruncated
+
+    ErrorResponse:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: string
+
+    SchemaValidationError:
+      type: object
+      description: Fastify/Ajv's default validation-error shape (distinct from ErrorResponse; used only for POST /apps body validation failures)
+      required: [statusCode, error, message]
+      properties:
+        statusCode:
+          type: integer
+          example: 400
+        error:
+          type: string
+          example: "Bad Request"
+        message:
+          type: string
+          example: "body must have required property 'container'"
