@@ -5,6 +5,7 @@ import { ConfigFiles } from './lib/configFiles.js';
 import { JobRunner } from './lib/jobRunner.js';
 import { registerAppRoutes } from './routes/apps.js';
 import { registerRunRoutes } from './routes/runs.js';
+import { registerOutputRoutes } from './routes/outputs.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const DEFAULT_REPO_ROOT = path.resolve(__dirname, '..', '..', '..');
@@ -19,6 +20,7 @@ export function buildServer(options?: { repoRoot?: string }): FastifyInstance {
   const jobRunner = new JobRunner(repoRoot);
   registerAppRoutes(app, configFiles);
   registerRunRoutes(app, jobRunner);
+  registerOutputRoutes(app, configFiles, repoRoot);
 
   return app;
 }
