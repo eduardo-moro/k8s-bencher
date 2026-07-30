@@ -26,14 +26,14 @@ export function RunBanner() {
         <StatusBadge status={job.status} />
         <span className="font-mono">{job.appName}</span>
         <span className="font-mono text-muted-foreground">
-          {formatElapsed(job.startedAt)} elapsed
+          {formatElapsed(job.startedAt)} decorrido
         </span>
         <Link
           to="/apps/$name"
           params={{ name: job.appName }}
           className="text-running underline underline-offset-4"
         >
-          View live log
+          Ver log ao vivo
         </Link>
         <Button
           size="sm"
@@ -42,7 +42,7 @@ export function RunBanner() {
           disabled={cancel.isPending}
           onClick={() => cancel.mutate()}
         >
-          <X className="size-3.5" /> Cancel run
+          <X className="size-3.5" /> Cancelar execução
         </Button>
       </div>
     </div>

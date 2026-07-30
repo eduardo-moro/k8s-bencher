@@ -8,6 +8,13 @@ const styles: Record<JobStatus, string> = {
   failed: "bg-destructive/15 text-destructive border-destructive/40",
 };
 
+const labels: Record<JobStatus, string> = {
+  starting: "iniciando",
+  running: "executando",
+  done: "concluído",
+  failed: "falhou",
+};
+
 export function StatusBadge({ status, className }: { status: JobStatus; className?: string }) {
   return (
     <span
@@ -23,7 +30,7 @@ export function StatusBadge({ status, className }: { status: JobStatus; classNam
           (status === "running" || status === "starting") && "animate-pulse",
         )}
       />
-      {status}
+      {labels[status]}
     </span>
   );
 }

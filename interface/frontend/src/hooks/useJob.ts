@@ -25,7 +25,7 @@ export function useStartRun() {
     mutationFn: (name: string) => api.startRun(name),
     onSuccess: (job) => {
       qc.setQueryData(jobQueryKey, job);
-      toast.success(`Run started for ${job.appName}`);
+      toast.success(`Execução iniciada para ${job.appName}`);
     },
     onError: (e: Error) => toast.error(e.message),
   });
@@ -37,7 +37,7 @@ export function useCancelRun() {
     mutationFn: () => api.cancelJob(),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: jobQueryKey });
-      toast.success("Run cancelled — cluster torn down");
+      toast.success("Execução cancelada — cluster removido");
     },
     onError: (e: Error) => toast.error(e.message),
   });

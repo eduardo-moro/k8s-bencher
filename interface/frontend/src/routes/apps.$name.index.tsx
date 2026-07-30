@@ -12,15 +12,15 @@ import { api, formatElapsed, isActive } from "@/lib/api";
 export const Route = createFileRoute("/apps/$name/")({
   head: () => ({
     meta: [
-      { title: "App detail — perftest console" },
+      { title: "Detalhes do app — console perftest" },
       {
         name: "description",
-        content: "Review an app's sweep config, start a run, watch the live log and past results.",
+        content: "Veja a configuração de varredura de um app, inicie uma execução, acompanhe o log ao vivo e resultados anteriores.",
       },
-      { property: "og:title", content: "App detail — perftest console" },
+      { property: "og:title", content: "Detalhes do app — console perftest" },
       {
         property: "og:description",
-        content: "Start a resource sweep and watch the live k6 run log.",
+        content: "Inicie uma varredura de recursos e acompanhe o log da execução k6 ao vivo.",
       },
     ],
   }),
@@ -58,7 +58,7 @@ function AppDetailPage() {
       </div>
     );
   if (isLoading || !app)
-    return <p className="font-mono text-sm text-muted-foreground">loading {name}…</p>;
+    return <p className="font-mono text-sm text-muted-foreground">carregando {name}…</p>;
 
   return (
     <div className="grid gap-5">
@@ -73,25 +73,25 @@ function AppDetailPage() {
           <h1 className="font-mono text-xl font-semibold tracking-tight">{app.name}</h1>
           <p className="text-sm text-muted-foreground">
             container <span className="font-mono text-foreground">{app.container}</span> ·{" "}
-            {app.resources.memory.length * app.resources.cpu.length} tiers
+            {app.resources.memory.length * app.resources.cpu.length} níveis
           </p>
         </div>
         <div className="flex gap-2">
           <Button variant="outline" asChild>
             <Link to="/apps/$name/edit" params={{ name }}>
-              <Pencil className="size-4" /> Edit
+              <Pencil className="size-4" /> Editar
             </Link>
           </Button>
           <Button
             disabled={globallyRunning || startRun.isPending}
             title={
               globallyRunning
-                ? "A run is already in progress — only one kind cluster exists"
-                : "Start a full resource-matrix run"
+                ? "Já existe uma execução em andamento — só existe um cluster kind"
+                : "Iniciar uma execução completa da matriz de recursos"
             }
             onClick={() => startRun.mutate(name)}
           >
-            <Play className="size-4" /> Start run
+            <Play className="size-4" /> Iniciar execução
           </Button>
         </div>
       </div>
@@ -99,11 +99,11 @@ function AppDetailPage() {
       {thisJob && (
         <Card className="border-border">
           <CardHeader className="flex flex-row flex-wrap items-center gap-3 pb-3">
-            <CardTitle className="font-mono text-sm">Run</CardTitle>
+            <CardTitle className="font-mono text-sm">Execução</CardTitle>
             <StatusBadge status={thisJob.status} />
             <span className="font-mono text-xs text-muted-foreground">
               {formatElapsed(thisJob.startedAt, thisJob.finishedAt)}
-              {thisJob.exitCode !== undefined && ` · exit ${thisJob.exitCode}`}
+              {thisJob.exitCode !== undefined && ` · saída ${thisJob.exitCode}`}
             </span>
             <div className="ml-auto flex gap-2">
               {isActive(thisJob.status) && (
@@ -113,7 +113,7 @@ function AppDetailPage() {
                   disabled={cancel.isPending}
                   onClick={() => cancel.mutate()}
                 >
-                  <X className="size-3.5" /> Cancel
+                  <X className="size-3.5" /> Cancelar
                 </Button>
               )}
               {!isActive(thisJob.status) && thisJob.outputDir && (
@@ -122,7 +122,7 @@ function AppDetailPage() {
                     to="/apps/$name/outputs/$folder"
                     params={{ name, folder: thisJob.outputDir }}
                   >
-                    View results
+                    Ver resultados
                   </Link>
                 </Button>
               )}
@@ -136,14 +136,14 @@ function AppDetailPage() {
 
       <Card>
         <CardHeader className="pb-3">
-          <CardTitle className="font-mono text-sm">Config</CardTitle>
+          <CardTitle className="font-mono text-sm">Configuração</CardTitle>
         </CardHeader>
         <CardContent className="grid gap-4 text-sm sm:grid-cols-2">
-          <Field label="memory tiers" value={app.resources.memory.join("  ")} />
-          <Field label="cpu tiers" value={app.resources.cpu.join("  ")} />
+          <Field label="níveis de memória" value={app.resources.memory.join("  ")} />
+          <Field label="níveis de cpu" value={app.resources.cpu.join("  ")} />
           <Field label="vus" value={String(app.load.vus)} />
           <Field
-            label="stages"
+            label="estágios"
             value={app.load.stages.map((s) => `${s.duration} → ${s.target}`).join("   ")}
           />
           <div className="sm:col-span-2">
@@ -159,13 +159,13 @@ function AppDetailPage() {
 
       <Card>
         <CardHeader className="pb-3">
-          <CardTitle className="font-mono text-sm">Past runs</CardTitle>
+          <CardTitle className="font-mono text-sm">Execuções anteriores</CardTitle>
         </CardHeader>
         <CardContent>
           {!outputs?.length ? (
             <div className="rounded-md border border-dashed border-border p-8 text-center text-sm text-muted-foreground">
               <FolderClock className="mx-auto size-6" />
-              <p className="mt-2">No runs yet — hit “Start run” to sweep the resource matrix.</p>
+              <p className="mt-2">Nenhuma execução ainda — clique em “Iniciar execução” para varrer a matriz de recursos.</p>
             </div>
           ) : (
             <ul className="divide-y divide-border">
