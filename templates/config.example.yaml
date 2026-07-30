@@ -3,8 +3,8 @@ manifest: manifests/httpbin.yaml
 container: httpbin
 script: loadtest/httpbin.js
 resources:
-  memory: [128Mi, 256Mi]
-  cpu: [100m, 250m]
+  memory: [128Mi, 256Mi, 512Mi]
+  cpu: [100m, 250m, 500m, 1000m]
 load:
   vus: 15
   stages:
