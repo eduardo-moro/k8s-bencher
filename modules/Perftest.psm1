@@ -190,6 +190,9 @@ function Start-PerftestK6Job {
         if ($waited -ge 240) { throw "Timed out waiting for k6 job '$pod' to finish" }
     }
 
+    # kubectl cp can't disambiguate an absolute Windows path's drive-letter
+    # colon from its own pod:path separator, so the destination must be
+    # relative to the caller's cwd (perftest.ps1 already cd's to repo root).
     $relativeOutFile = [System.IO.Path]::GetRelativePath((Get-Location).Path, $OutFile)
     kubectl cp "${pod}:/results/summary.json" $relativeOutFile
     if ($LASTEXITCODE -ne 0) { throw "kubectl cp of k6 summary.json failed with exit code $LASTEXITCODE" }
