@@ -10,7 +10,7 @@ RESET  := \033[0m
 .PHONY: help check cluster run teardown all full demo-setup
 
 help:
-	@printf "\n\t$(CYAN)k8s-perftest$(RESET) -- Ferramenta de perfilamento de recursos para aplicações em kubernetes"
+	@printf "\n\t$(CYAN)k8s-perftest$(RESET) -- Ferramenta de perfilamento de recursos para aplicacoes em kubernetes"
 	@printf "\n\n"
 	@printf "\tmake $(CYAN)check$(RESET) ...................... verifica se kind/kubectl/k6/docker/powershell-yaml estao instalados e prontos\n"
 	@printf "\tmake $(CYAN)cluster$(RESET) .................... cria o cluster kind\n"
