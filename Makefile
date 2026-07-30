@@ -4,22 +4,23 @@ GREEN  := \033[0;32m
 RED    := \033[0;31m
 CYAN   := \033[0;36m
 YELLOW := \033[0;33m
+GRAY   := \033[0;37m
 RESET  := \033[0m
 
 .PHONY: help check cluster run teardown all full demo-setup
 
 help:
-	@printf "$(CYAN)k8s-perftest$(RESET) - wrapper simples do make em torno do perftest.ps1 (a interface principal e o PowerShell)\n"
+	@printf "\n\t$(CYAN)k8s-perftest$(RESET) -- Ferramenta de perfilamento de recursos para aplicações em kubernetes"
+	@printf "\n\n"
+	@printf "\tmake $(CYAN)check$(RESET) ...................... verifica se kind/kubectl/k6/docker/powershell-yaml estao instalados e prontos\n"
+	@printf "\tmake $(CYAN)cluster$(RESET) .................... cria o cluster kind\n"
+	@printf "\tmake $(CYAN)teardown$(RESET) ................... remove o cluster kind\n"
+	@printf "\tmake $(CYAN)run CONFIG=caminho.yaml$(RESET) .... faz o deploy + roda a matriz de recursos para uma config\n"
+	@printf "\tmake $(CYAN)all CONFIG=caminho.yaml$(RESET) .... cluster + run, cluster permanece ativo\n"
+	@printf "\tmake $(CYAN)full CONFIG=caminho.yaml$(RESET) ... cluster + run + teardown\n"
 	@printf "\n"
-	@printf "  make check                  - verifica se kind/kubectl/k6/docker/powershell-yaml estao instalados e prontos\n"
-	@printf "  make cluster                - cria o cluster kind\n"
-	@printf "  make run CONFIG=caminho.yaml  - faz o deploy + roda a matriz de recursos para uma config\n"
-	@printf "  make teardown               - remove o cluster kind\n"
-	@printf "  make all CONFIG=caminho.yaml  - cluster + run, cluster permanece de pe\n"
-	@printf "  make full CONFIG=caminho.yaml - cluster + run + teardown\n"
-	@printf "\n"
-	@printf "$(YELLOW)Rode run/all/full sem CONFIG e ele demonstra o exemplo httpbin ja incluso\n"
-	@printf "(copiado de templates/ para manifests/loadtest/configs/ no primeiro uso).$(RESET)\n"
+	@printf "$(GRAY)\t// Rode $(CYAN)run/all/full$(GRAY) sem CONFIG e ele demonstra o exemplo httpbin ja incluso\n"
+	@printf "\t(copiado de $(CYAN)templates/$(GRAY) para $(CYAN)manifests/$(GRAY), $(CYAN)loadtest/$(GRAY) e $(CYAN)configs/$(RESET) no primeiro uso).$(RESET)\n"
 
 check:
 	@command -v pwsh >/dev/null 2>&1 || { printf "[$(RED) FAIL $(RESET)] pwsh ($(CYAN)PowerShell 7+$(RESET)) nao encontrado no PATH - instale: $(CYAN)https://github.com/PowerShell/PowerShell$(RESET)\n"; exit 1; }
