@@ -19,16 +19,16 @@ import { cn } from "@/lib/utils";
 export const Route = createFileRoute("/apps/$name/outputs/$folder")({
   head: () => ({
     meta: [
-      { title: "Run results — perftest console" },
+      { title: "Resultados da execução — console perftest" },
       {
         name: "description",
         content:
-          "p95/p99 latency, error rate and OOM findings for every CPU/memory tier in a sweep.",
+          "Latência p95/p99, taxa de erro e ocorrências de OOM para cada nível de CPU/memória de uma varredura.",
       },
-      { property: "og:title", content: "Run results — perftest console" },
+      { property: "og:title", content: "Resultados da execução — console perftest" },
       {
         property: "og:description",
-        content: "Latency and OOM results per resource tier from a k6 sweep.",
+        content: "Resultados de latência e OOM por nível de recursos de uma varredura k6.",
       },
     ],
   }),
@@ -72,7 +72,7 @@ function ResultsPage() {
         </div>
         <Button variant="outline" asChild>
           <a href={api.rawCsvUrl(name, folder)} download>
-            <Download className="size-4" /> Download raw CSV
+            <Download className="size-4" /> Baixar CSV bruto
           </a>
         </Button>
       </div>
@@ -82,15 +82,15 @@ function ResultsPage() {
           {(error as Error).message}
         </div>
       )}
-      {isLoading && <p className="font-mono text-sm text-muted-foreground">loading results…</p>}
+      {isLoading && <p className="font-mono text-sm text-muted-foreground">carregando resultados…</p>}
 
       {!!chartData.length && (
         <Card>
           <CardHeader className="pb-2">
-            <CardTitle className="font-mono text-sm">p95 latency by tier (cpu/memory)</CardTitle>
+            <CardTitle className="font-mono text-sm">latência p95 por nível (cpu/memória)</CardTitle>
             {best && (
               <p className="text-xs text-muted-foreground">
-                Sweet spot:{" "}
+                Melhor combinação:{" "}
                 <span className="font-mono text-success">
                   {best.tier} @ {best.p95.toFixed(0)}ms
                 </span>
@@ -138,7 +138,7 @@ function ResultsPage() {
 
       {!isLoading && rows.length === 0 && !error && (
         <div className="rounded-lg border border-dashed border-border p-10 text-center text-sm text-muted-foreground">
-          This run produced no result rows.
+          Esta execução não produziu linhas de resultado.
         </div>
       )}
 
@@ -148,15 +148,15 @@ function ResultsPage() {
             <thead className="bg-muted/60 font-mono text-xs uppercase tracking-wide text-muted-foreground">
               <tr>
                 {[
-                  "memory",
+                  "memória",
                   "cpu",
                   "p95 ms",
                   "p99 ms",
-                  "error rate",
-                  "http reqs",
+                  "taxa de erro",
+                  "reqs http",
                   "oom",
-                  "restarts",
-                  "duration s",
+                  "reinícios",
+                  "duração s",
                 ].map((h) => (
                   <th key={h} className="px-3 py-2 text-left whitespace-nowrap">
                     {h}
@@ -179,7 +179,7 @@ function ResultsPage() {
                       {r.memory}
                       {bad && (
                         <span className="ml-2 inline-flex items-center gap-1 rounded bg-destructive/15 px-1.5 py-0.5 text-[10px] uppercase">
-                          <TriangleAlert className="size-3" /> this tier broke the app
+                          <TriangleAlert className="size-3" /> este nível quebrou o app
                         </span>
                       )}
                     </td>
@@ -192,7 +192,7 @@ function ResultsPage() {
                     <td className="px-3 py-2">
                       {r.http_reqs_total === null ? "—" : r.http_reqs_total.toLocaleString()}
                     </td>
-                    <td className="px-3 py-2">{r.oom_killed ? "OOMKilled" : "no"}</td>
+                    <td className="px-3 py-2">{r.oom_killed ? "OOMKilled" : "não"}</td>
                     <td className="px-3 py-2">{r.restart_count}</td>
                     <td className="px-3 py-2">{num(r.duration_seconds, 1)}</td>
                   </tr>

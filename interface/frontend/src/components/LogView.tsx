@@ -26,7 +26,7 @@ export function LogView({
         className,
       )}
     >
-      {text?.trim() ? text : "— no output yet —"}
+      {text?.trim() ? text : "— sem saída ainda —"}
     </pre>
   );
 }

@@ -45,7 +45,7 @@ export function ChipListInput({
             {v}
             <button
               type="button"
-              aria-label={`Remove ${v} from ${label}`}
+              aria-label={`Remover ${v} de ${label}`}
               onClick={() => onChange(values.filter((x) => x !== v))}
               className="text-muted-foreground hover:text-destructive"
             >
@@ -62,7 +62,7 @@ export function ChipListInput({
           className="h-7 w-32 flex-1 border-0 bg-transparent px-1 font-mono text-xs shadow-none focus-visible:ring-0"
         />
       </div>
-      <p className="mt-1 text-xs text-muted-foreground">Press Enter to add.</p>
+      <p className="mt-1 text-xs text-muted-foreground">Pressione Enter para adicionar.</p>
     </div>
   );
 }

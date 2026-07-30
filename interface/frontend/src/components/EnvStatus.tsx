@@ -14,7 +14,7 @@ export function EnvStatus() {
   });
 
   const ready = data?.ready === true;
-  const label = isError ? "api unreachable" : data ? (ready ? "env ready" : "env not ready") : "checking…";
+  const label = isError ? "api inacessível" : data ? (ready ? "ambiente pronto" : "ambiente não pronto") : "verificando…";
 
   return (
     <div className="relative">
@@ -39,7 +39,7 @@ export function EnvStatus() {
           type="button"
           onClick={() => refetch()}
           className="rounded p-1 text-muted-foreground hover:text-foreground"
-          aria-label="Re-run prerequisite check"
+          aria-label="Executar novamente a verificação de pré-requisitos"
         >
           <RefreshCw className={cn("size-3.5", isFetching && "animate-spin")} />
         </button>
@@ -48,9 +48,9 @@ export function EnvStatus() {
       {open && (
         <div className="absolute right-0 z-50 mt-2 w-[min(90vw,34rem)] rounded-lg border border-border bg-popover p-3 shadow-lg">
           <p className="mb-2 text-xs text-muted-foreground">
-            Prerequisites: kind, kubectl, k6, docker, powershell-yaml
+            Pré-requisitos: kind, kubectl, k6, docker, powershell-yaml
           </p>
-          <LogView text={data?.output ?? "No check output."} className="max-h-72" />
+          <LogView text={data?.output ?? "Nenhuma saída de verificação."} className="max-h-72" />
         </div>
       )}
     </div>

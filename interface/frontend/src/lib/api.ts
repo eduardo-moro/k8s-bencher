@@ -1,6 +1,6 @@
 export const API_BASE =
   (import.meta.env.VITE_API_BASE_URL as string | undefined)?.replace(/\/$/, "") ||
-  "http://localhost:3001";
+  "http://localhost:8026";
 
 export interface AppSummary {
   name: string;
@@ -72,7 +72,7 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
       headers: init?.body ? { "Content-Type": "application/json", ...init?.headers } : init?.headers,
     });
   } catch {
-    throw new ApiError(`Cannot reach perftest-api at ${API_BASE}`, 0);
+    throw new ApiError(`Não foi possível conectar à perftest-api em ${API_BASE}`, 0);
   }
 
   if (!res.ok) {
