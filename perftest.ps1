@@ -5,6 +5,7 @@ param(
     [Parameter(ParameterSetName = 'Teardown')] [switch]$Teardown,
     [Parameter(ParameterSetName = 'All')] [switch]$All,
     [Parameter(ParameterSetName = 'Full')] [switch]$Full,
+    [Parameter(ParameterSetName = 'Check')] [switch]$Check,
     [Parameter(ParameterSetName = 'Run')]
     [Parameter(ParameterSetName = 'All')]
     [Parameter(ParameterSetName = 'Full')]
@@ -18,7 +19,7 @@ Import-Module (Join-Path $PSScriptRoot 'modules/Perftest.psm1') -Force
 
 function Invoke-PerftestRun {
     param([string]$ConfigPath)
-    if (-not $ConfigPath) { throw "-Config <path> is required" }
+    if (-not $ConfigPath) { throw "O parametro -Config <caminho> e obrigatorio" }
     $parsedConfig = Get-PerftestConfig -Path $ConfigPath -RepoRoot $PSScriptRoot
     Deploy-PerftestApp -Config $parsedConfig
     Publish-PerftestLoadScript -Config $parsedConfig
@@ -40,7 +41,11 @@ switch ($PSCmdlet.ParameterSetName) {
         Invoke-PerftestRun -ConfigPath $Config
         Remove-PerftestCluster
     }
+    'Check' {
+        $ready = Test-PerftestPrerequisites
+        if (-not $ready) { exit 1 }
+    }
     default {
-        Write-Host "Usage: perftest.ps1 -Cluster | -Run -Config <path> | -Teardown | -All -Config <path> | -Full -Config <path>"
+        Write-Host "Uso: perftest.ps1 -Cluster | -Run -Config <caminho> | -Teardown | -All -Config <caminho> | -Full -Config <caminho> | -Check" -ForegroundColor Yellow
     }
 }

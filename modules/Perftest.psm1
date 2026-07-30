@@ -9,33 +9,33 @@ function New-PerftestCluster {
 
     $existing = kind get clusters 2>$null
     if ($existing -contains $ClusterName) {
-        Write-Host "Cluster '$ClusterName' already exists, skipping creation."
+        Write-Host "Cluster '$ClusterName' ja existe, pulando a criacao." -ForegroundColor Yellow
         kubectl config use-context "kind-$ClusterName" | Out-Null
         return
     }
 
     $repoRoot = Split-Path -Parent $PSScriptRoot
     kind create cluster --name $ClusterName --config (Join-Path $repoRoot 'manifests/kind-config.yaml')
-    if ($LASTEXITCODE -ne 0) { throw "kind create cluster failed with exit code $LASTEXITCODE" }
+    if ($LASTEXITCODE -ne 0) { throw "Falha ao criar o cluster kind (codigo de saida $LASTEXITCODE)" }
 
-    Write-Host "Waiting for cluster to stabilize (30 seconds)..."
+    Write-Host "Aguardando o cluster estabilizar (30 segundos)..." -ForegroundColor Cyan
     Start-Sleep -Seconds 30
 
-    Write-Host "Installing metrics-server..."
+    Write-Host "Instalando o metrics-server..." -ForegroundColor Cyan
     kubectl apply --validate=false -f https://github.com/kubernetes-sigs/metrics-server/releases/latest/download/components.yaml
-    if ($LASTEXITCODE -ne 0) { throw "metrics-server apply failed with exit code $LASTEXITCODE" }
+    if ($LASTEXITCODE -ne 0) { throw "Falha ao aplicar o metrics-server (codigo de saida $LASTEXITCODE)" }
 
     # kind nodes use self-signed kubelet certs; metrics-server needs this flag
     # to scrape them, or `kubectl top pod` stays empty forever.
     kubectl patch deployment metrics-server -n kube-system --type='json' `
         -p='[{"op":"add","path":"/spec/template/spec/containers/0/args/-","value":"--kubelet-insecure-tls"}]'
-    if ($LASTEXITCODE -ne 0) { throw "metrics-server patch failed with exit code $LASTEXITCODE" }
+    if ($LASTEXITCODE -ne 0) { throw "Falha ao aplicar patch no metrics-server (codigo de saida $LASTEXITCODE)" }
 
-    Write-Host "Waiting for metrics-server rollout..."
+    Write-Host "Aguardando o rollout do metrics-server..." -ForegroundColor Cyan
     kubectl -n kube-system rollout status deployment/metrics-server --timeout=120s
-    if ($LASTEXITCODE -ne 0) { throw "metrics-server rollout failed with exit code $LASTEXITCODE" }
+    if ($LASTEXITCODE -ne 0) { throw "Falha no rollout do metrics-server (codigo de saida $LASTEXITCODE)" }
 
-    Write-Host "Cluster ready. Context: kind-$ClusterName"
+    Write-Host "Cluster pronto. Contexto: kind-$ClusterName" -ForegroundColor Green
 }
 
 function Remove-PerftestCluster {
@@ -44,12 +44,12 @@ function Remove-PerftestCluster {
         [string]$ClusterName = 'k8s-perftest'
     )
     kind delete cluster --name $ClusterName
-    if ($LASTEXITCODE -ne 0) { throw "kind delete cluster failed with exit code $LASTEXITCODE" }
+    if ($LASTEXITCODE -ne 0) { throw "Falha ao excluir o cluster kind (codigo de saida $LASTEXITCODE)" }
 }
 
 function Assert-PerftestYamlModule {
     if (-not (Get-Module -ListAvailable -Name powershell-yaml)) {
-        Write-Host "Installing powershell-yaml module (one-time)..."
+        Write-Host "Instalando o modulo powershell-yaml (apenas uma vez)..." -ForegroundColor Cyan
         Install-Module -Name powershell-yaml -Scope CurrentUser -Force -ErrorAction Stop
     }
     Import-Module powershell-yaml -ErrorAction Stop
@@ -68,14 +68,14 @@ function Get-PerftestConfig {
 
     foreach ($required in 'manifest', 'container', 'script') {
         if (-not $raw.ContainsKey($required) -or [string]::IsNullOrWhiteSpace($raw[$required])) {
-            throw "Config '$Path' is missing required field '$required'."
+            throw "A configuracao '$Path' esta sem o campo obrigatorio '$required'."
         }
     }
     if (-not $raw.ContainsKey('resources') -or -not $raw.resources.ContainsKey('memory') -or -not $raw.resources.memory) {
-        throw "Config '$Path' is missing required field 'resources.memory'."
+        throw "A configuracao '$Path' esta sem o campo obrigatorio 'resources.memory'."
     }
     if (-not $raw.resources.ContainsKey('cpu') -or -not $raw.resources.cpu) {
-        throw "Config '$Path' is missing required field 'resources.cpu'."
+        throw "A configuracao '$Path' esta sem o campo obrigatorio 'resources.cpu'."
     }
 
     $stages = @()
@@ -123,10 +123,10 @@ function Deploy-PerftestApp {
     )
 
     kubectl apply -f $Config.manifest
-    if ($LASTEXITCODE -ne 0) { throw "kubectl apply of '$($Config.manifest)' failed with exit code $LASTEXITCODE" }
+    if ($LASTEXITCODE -ne 0) { throw "Falha ao aplicar '$($Config.manifest)' (codigo de saida $LASTEXITCODE)" }
 
     kubectl rollout status "deployment/$($Config.container)" --timeout=120s
-    if ($LASTEXITCODE -ne 0) { throw "rollout of deployment/$($Config.container) failed with exit code $LASTEXITCODE" }
+    if ($LASTEXITCODE -ne 0) { throw "Falha no rollout de deployment/$($Config.container) (codigo de saida $LASTEXITCODE)" }
 }
 
 function Publish-PerftestLoadScript {
@@ -138,10 +138,10 @@ function Publish-PerftestLoadScript {
 
     $scriptFileName = Split-Path -Leaf $Config.script
     $yaml = kubectl create configmap k6-script "--from-file=${scriptFileName}=$($Config.script)" --dry-run=client -o yaml
-    if ($LASTEXITCODE -ne 0) { throw "kubectl create configmap (dry-run) failed with exit code $LASTEXITCODE" }
+    if ($LASTEXITCODE -ne 0) { throw "Falha ao gerar o ConfigMap (dry-run) (codigo de saida $LASTEXITCODE)" }
 
     $yaml | kubectl apply -f -
-    if ($LASTEXITCODE -ne 0) { throw "kubectl apply of k6-script ConfigMap failed with exit code $LASTEXITCODE" }
+    if ($LASTEXITCODE -ne 0) { throw "Falha ao aplicar o ConfigMap k6-script (codigo de saida $LASTEXITCODE)" }
 }
 
 function Start-PerftestK6Job {
@@ -171,7 +171,7 @@ function Start-PerftestK6Job {
     # cross-combo pod-discovery races.
     kubectl delete job $JobName --ignore-not-found | Out-Null
     ($job | ConvertTo-Yaml) | kubectl apply -f -
-    if ($LASTEXITCODE -ne 0) { throw "kubectl apply of $JobName Job failed with exit code $LASTEXITCODE" }
+    if ($LASTEXITCODE -ne 0) { throw "Falha ao aplicar o Job $JobName (codigo de saida $LASTEXITCODE)" }
 
     $pod = $null
     $waited = 0
@@ -179,7 +179,7 @@ function Start-PerftestK6Job {
         $pod = kubectl get pods -l job-name=$JobName -o jsonpath='{.items[0].metadata.name}' 2>$null
         if (-not $pod) { Start-Sleep -Seconds 2; $waited += 2 }
     }
-    if (-not $pod) { throw "k6 pod never appeared" }
+    if (-not $pod) { throw "O pod do k6 nunca apareceu" }
 
     $waited = 0
     while ($true) {
@@ -187,7 +187,7 @@ function Start-PerftestK6Job {
         if ($LASTEXITCODE -eq 0) { break }
         Start-Sleep -Seconds 5
         $waited += 5
-        if ($waited -ge 240) { throw "Timed out waiting for k6 job '$pod' to finish" }
+        if ($waited -ge 240) { throw "Tempo esgotado aguardando o job do k6 '$pod' terminar" }
     }
 
     # kubectl cp can't disambiguate an absolute Windows path's drive-letter
@@ -195,7 +195,7 @@ function Start-PerftestK6Job {
     # relative to the caller's cwd (perftest.ps1 already cd's to repo root).
     $relativeOutFile = [System.IO.Path]::GetRelativePath((Get-Location).Path, $OutFile)
     kubectl cp "${pod}:/results/summary.json" $relativeOutFile
-    if ($LASTEXITCODE -ne 0) { throw "kubectl cp of k6 summary.json failed with exit code $LASTEXITCODE" }
+    if ($LASTEXITCODE -ne 0) { throw "Falha ao copiar o summary.json do k6 (codigo de saida $LASTEXITCODE)" }
 }
 
 function Invoke-PerftestMatrix {
@@ -218,19 +218,19 @@ function Invoke-PerftestMatrix {
     foreach ($combo in $combos) {
         $mem = $combo.memory
         $cpu = $combo.cpu
-        Write-Host "=== Testing memory=$mem cpu=$cpu ==="
+        Write-Host "=== Testando memory=$mem cpu=$cpu ===" -ForegroundColor Cyan
         $startTime = Get-Date
 
         kubectl set resources "deployment/$($Config.container)" -c $Config.container `
             --limits="cpu=$cpu,memory=$mem" --requests="cpu=$cpu,memory=$mem"
-        if ($LASTEXITCODE -ne 0) { throw "kubectl set resources failed with exit code $LASTEXITCODE" }
+        if ($LASTEXITCODE -ne 0) { throw "Falha ao definir os recursos (codigo de saida $LASTEXITCODE)" }
 
         kubectl rollout status "deployment/$($Config.container)" --timeout=120s
-        if ($LASTEXITCODE -ne 0) { throw "rollout after resource patch failed with exit code $LASTEXITCODE" }
+        if ($LASTEXITCODE -ne 0) { throw "Falha no rollout apos o ajuste de recursos (codigo de saida $LASTEXITCODE)" }
         Start-Sleep -Seconds 5
 
         $pod = kubectl get pod -l "app=$($Config.container)" --field-selector=status.phase=Running -o jsonpath='{.items[0].metadata.name}'
-        if (-not $pod) { throw "No running pod found for app=$($Config.container) after resource patch" }
+        if (-not $pod) { throw "Nenhum pod em execucao encontrado para app=$($Config.container) apos o ajuste de recursos" }
 
         $topLog = Join-Path $OutputDir "top-$mem-$cpu.log"
         $samplerJob = Start-Job -ScriptBlock {
@@ -267,10 +267,74 @@ function Invoke-PerftestMatrix {
         "$mem,$cpu,$($startTime.ToString('o')),$($endTime.ToString('o')),$durationSeconds,$p95,$p99,$errRate,$httpReqsTotal,$oomFlag,$restartCount" |
             Add-Content -Path $resultsPath
 
-        Write-Host "--- result: mem=$mem cpu=$cpu duration=${durationSeconds}s p95=${p95}ms err_rate=$errRate oom=$oomFlag restarts=$restartCount ---"
+        $resultColor = if ($oomFlag -eq 'yes' -or $restartCount -gt 0) { 'Red' } else { 'Green' }
+        Write-Host "--- resultado: mem=$mem cpu=$cpu duracao=${durationSeconds}s p95=${p95}ms taxa_erro=$errRate oom=$oomFlag reinicios=$restartCount ---" -ForegroundColor $resultColor
     }
 
-    Write-Host "Matrix complete. Results in $resultsPath"
+    Write-Host "Matriz concluida. Resultados em $resultsPath" -ForegroundColor Green
 }
 
-Export-ModuleMember -Function New-PerftestCluster, Remove-PerftestCluster, Get-PerftestConfig, Get-PerftestResourceCombos, Deploy-PerftestApp, Publish-PerftestLoadScript, Invoke-PerftestMatrix
+function Test-PerftestPrerequisites {
+    [CmdletBinding()]
+    param()
+
+    $requirements = @(
+        @{
+            Label = 'kind'
+            Check = { [bool](Get-Command kind -ErrorAction SilentlyContinue) }
+            Hint  = 'Instale o kind: https://kind.sigs.k8s.io/docs/user/quick-start/#installation'
+        },
+        @{
+            Label = 'kubectl'
+            Check = { [bool](Get-Command kubectl -ErrorAction SilentlyContinue) }
+            Hint  = 'Instale o kubectl: https://kubernetes.io/docs/tasks/tools/'
+        },
+        @{
+            Label = 'k6'
+            Check = { [bool](Get-Command k6 -ErrorAction SilentlyContinue) }
+            Hint  = 'Instale o k6: https://k6.io/docs/get-started/installation/'
+        },
+        @{
+            Label = 'docker (daemon em execucao)'
+            Check = {
+                if (-not (Get-Command docker -ErrorAction SilentlyContinue)) { return $false }
+                docker info *> $null
+                $LASTEXITCODE -eq 0
+            }
+            Hint  = 'Instale o Docker Desktop e verifique se esta em execucao: https://www.docker.com/products/docker-desktop/'
+        },
+        @{
+            Label = 'modulo powershell-yaml'
+            Check = { [bool](Get-Module -ListAvailable -Name powershell-yaml) }
+            Hint  = 'Instale com: Install-Module -Name powershell-yaml -Scope CurrentUser'
+        }
+    )
+
+    $allPassed = $true
+    foreach ($requirement in $requirements) {
+        $passed = $false
+        try { $passed = [bool](& $requirement.Check) } catch { $passed = $false }
+
+        if ($passed) {
+            Write-Host "[  " -NoNewline
+            Write-Host "OK" -ForegroundColor Green -NoNewline
+            Write-Host "  ]    $($requirement.Label)"
+        } else {
+            Write-Host "[ " -NoNewline
+            Write-Host "FAIL" -ForegroundColor Red -NoNewline
+            Write-Host " ] $($requirement.Label) - $($requirement.Hint)"
+            $allPassed = $false
+        }
+    }
+
+    Write-Host ''
+    if ($allPassed) {
+        Write-Host 'Todos os pre-requisitos estao instalados e prontos.' -ForegroundColor Cyan
+    } else {
+        Write-Host 'Alguns pre-requisitos estao faltando - veja as linhas de FAIL acima.' -ForegroundColor Red
+    }
+
+    $allPassed
+}
+
+Export-ModuleMember -Function New-PerftestCluster, Remove-PerftestCluster, Get-PerftestConfig, Get-PerftestResourceCombos, Deploy-PerftestApp, Publish-PerftestLoadScript, Invoke-PerftestMatrix, Test-PerftestPrerequisites
