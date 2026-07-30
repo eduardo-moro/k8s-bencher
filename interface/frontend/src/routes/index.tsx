@@ -20,16 +20,16 @@ import { useCurrentJob, useStartRun } from "@/hooks/useJob";
 export const Route = createFileRoute("/")({
   head: () => ({
     meta: [
-      { title: "Apps — perftest console" },
+      { title: "Apps — console perftest" },
       {
         name: "description",
         content:
-          "All configured apps with their CPU and memory sweep matrices, plus local prerequisite status.",
+          "Todos os apps configurados com suas matrizes de varredura de CPU e memória, além do status dos pré-requisitos locais.",
       },
-      { property: "og:title", content: "Apps — perftest console" },
+      { property: "og:title", content: "Apps — console perftest" },
       {
         property: "og:description",
-        content: "Configured apps and their Kubernetes resource sweep matrices.",
+        content: "Apps configurados e suas matrizes de varredura de recursos no Kubernetes.",
       },
     ],
   }),
@@ -47,7 +47,7 @@ function Dashboard() {
   const del = useMutation({
     mutationFn: (name: string) => api.deleteApp(name),
     onSuccess: (_d, name) => {
-      toast.success(`Deleted ${name}`);
+      toast.success(`Excluído ${name}`);
       qc.invalidateQueries({ queryKey: ["apps"] });
     },
     onError: (e: Error) => toast.error(e.message),
@@ -59,12 +59,12 @@ function Dashboard() {
         <div>
           <h1 className="text-xl font-semibold tracking-tight">Apps</h1>
           <p className="text-sm text-muted-foreground">
-            Sweep k6 load tests across CPU/memory tiers in a disposable kind cluster.
+            Varra testes de carga k6 por níveis de CPU/memória em um cluster kind descartável.
           </p>
         </div>
         <Button asChild>
           <Link to="/apps/new">
-            <Plus className="size-4" /> New app
+            <Plus className="size-4" /> Novo app
           </Link>
         </Button>
       </div>
@@ -75,18 +75,18 @@ function Dashboard() {
         </div>
       )}
 
-      {isLoading && <p className="font-mono text-sm text-muted-foreground">loading apps…</p>}
+      {isLoading && <p className="font-mono text-sm text-muted-foreground">carregando apps…</p>}
 
       {apps && apps.length === 0 && (
         <div className="rounded-lg border border-dashed border-border p-10 text-center">
           <Boxes className="mx-auto size-8 text-muted-foreground" />
-          <h2 className="mt-3 font-medium">No apps configured yet</h2>
+          <h2 className="mt-3 font-medium">Nenhum app configurado ainda</h2>
           <p className="mx-auto mt-1 max-w-md text-sm text-muted-foreground">
-            Create your first app — you can start from the bundled httpbin example and tweak it.
+            Crie seu primeiro app — você pode começar pelo exemplo httpbin incluso e ajustar depois.
           </p>
           <Button asChild className="mt-4">
             <Link to="/apps/new">
-              <Plus className="size-4" /> Create from example
+              <Plus className="size-4" /> Criar a partir do exemplo
             </Link>
           </Button>
         </div>
@@ -97,11 +97,11 @@ function Dashboard() {
           <table className="w-full text-sm">
             <thead className="bg-muted/60 font-mono text-xs uppercase tracking-wide text-muted-foreground">
               <tr>
-                <th className="px-4 py-2 text-left">name</th>
+                <th className="px-4 py-2 text-left">nome</th>
                 <th className="px-4 py-2 text-left">container</th>
-                <th className="px-4 py-2 text-left">memory</th>
+                <th className="px-4 py-2 text-left">memória</th>
                 <th className="px-4 py-2 text-left">cpu</th>
-                <th className="px-4 py-2 text-right">tiers</th>
+                <th className="px-4 py-2 text-right">níveis</th>
                 <th className="px-4 py-2" />
               </tr>
             </thead>
@@ -129,29 +129,29 @@ function Dashboard() {
                         size="sm"
                         variant="outline"
                         disabled={running || startRun.isPending}
-                        title={running ? "Another run is already in progress" : "Start run"}
+                        title={running ? "Já existe uma execução em andamento" : "Iniciar execução"}
                         onClick={() => startRun.mutate(app.name)}
                       >
-                        <Play className="size-3.5" /> Run
+                        <Play className="size-3.5" /> Executar
                       </Button>
                       <AlertDialog>
                         <AlertDialogTrigger asChild>
-                          <Button size="icon" variant="ghost" aria-label={`Delete ${app.name}`}>
+                          <Button size="icon" variant="ghost" aria-label={`Excluir ${app.name}`}>
                             <Trash2 className="size-4 text-destructive" />
                           </Button>
                         </AlertDialogTrigger>
                         <AlertDialogContent>
                           <AlertDialogHeader>
-                            <AlertDialogTitle>Delete {app.name}?</AlertDialogTitle>
+                            <AlertDialogTitle>Excluir {app.name}?</AlertDialogTitle>
                             <AlertDialogDescription>
-                              This removes the app's config, manifest and k6 script. Past run
-                              outputs on disk are not affected.
+                              Isso remove a config, o manifest e o script k6 do app. Os resultados
+                              de execuções passadas no disco não são afetados.
                             </AlertDialogDescription>
                           </AlertDialogHeader>
                           <AlertDialogFooter>
-                            <AlertDialogCancel>Cancel</AlertDialogCancel>
+                            <AlertDialogCancel>Cancelar</AlertDialogCancel>
                             <AlertDialogAction onClick={() => del.mutate(app.name)}>
-                              Delete
+                              Excluir
                             </AlertDialogAction>
                           </AlertDialogFooter>
                         </AlertDialogContent>
