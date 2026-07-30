@@ -226,6 +226,7 @@ function Invoke-PerftestMatrix {
         Start-Sleep -Seconds 5
 
         $pod = kubectl get pod -l "app=$($Config.container)" --field-selector=status.phase=Running -o jsonpath='{.items[0].metadata.name}'
+        if (-not $pod) { throw "No running pod found for app=$($Config.container) after resource patch" }
 
         $topLog = Join-Path $OutputDir "top-$mem-$cpu.log"
         $samplerJob = Start-Job -ScriptBlock {
