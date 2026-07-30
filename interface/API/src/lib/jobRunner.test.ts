@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { promises as fs } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -117,5 +117,78 @@ describe('JobRunner', () => {
 
     await runner.cancelCurrentJob();
     expect(runner.getCurrentJob()).toBeNull();
+  });
+
+  // Regression test for a stale-identity race: a cancelled run's own late-resolving
+  // output-poll tick (started before cancellation, but landing after a subsequent run
+  // has already been assigned a *new* timer/process) must not be able to stop the new
+  // run's polling. Note: on Windows, child.kill() forcefully and immediately terminates
+  // the process (Node ignores the signal name and kills it like SIGKILL), and
+  // cancelCurrentJob() itself spawns+awaits a real teardown process before returning
+  // (empirically ~25-85ms) -- which is *slower* than a killed process's own exit
+  // notification (empirically ~7-10ms). So a killed child's 'exit' event always fires
+  // and is fully handled *before* cancelCurrentJob() can return, making the literal
+  // "child ignores SIGTERM so its exit event arrives late" scenario unreproducible via
+  // real OS processes on this platform. This test instead drives the *other* half of
+  // the same bug -- the output-poll timer's stale in-flight tick -- deterministically,
+  // by gating a single fs.readdir() call with a manually-controlled promise instead of
+  // relying on wall-clock timing.
+  it("does not let a cancelled run's stale poll tick clobber a subsequently started run", async () => {
+    const realReaddir = fs.readdir.bind(fs);
+    let callIndex = 0;
+    let releaseFirstCall: (() => void) | null = null;
+    const firstCallGate = new Promise<void>((resolve) => {
+      releaseFirstCall = resolve;
+    });
+
+    const readdirSpy = vi.spyOn(fs, 'readdir').mockImplementation(async (...args: Parameters<typeof fs.readdir>) => {
+      const isFirst = callIndex === 0;
+      callIndex++;
+      if (isFirst) {
+        await firstCallGate;
+      }
+      return (realReaddir as (...a: Parameters<typeof fs.readdir>) => ReturnType<typeof fs.readdir>)(...args);
+    });
+
+    try {
+      let callCount = 0;
+      const runner = new JobRunner(repoRoot, {
+        pollIntervalMs: 200, // generous: long enough that neither job's own tick fires within our engineered window
+        buildRunCommand: () => {
+          callCount++;
+          if (callCount === 1) {
+            // job1: hangs until killed, creates no output dir of its own.
+            return { command: process.execPath, args: ['-e', 'setInterval(() => {}, 1000);'] };
+          }
+          // job2: the real fixture, creates its own output dir promptly at startup.
+          return { command: process.execPath, args: [fixtureScriptPath, 'testapp', '0'] };
+        },
+        buildTeardownCommand: () => ({ command: process.execPath, args: ['-e', 'process.exit(0)'] }),
+      });
+
+      await runner.startRun('testapp'); // job1
+      // Wait for job1's first poll tick to have started (called readdir); it's now
+      // blocked on firstCallGate, i.e. a stale in-flight tick for job1.
+      await waitFor(() => callIndex >= 1);
+
+      await runner.cancelCurrentJob(); // kills job1, clears job1's timer reference
+      const second = await runner.startRun('testapp'); // job2: assigns a NEW timer/process
+      expect(second.status).toBe('running');
+
+      // Give job2's fixture script real wall-clock time to start up and create its own
+      // output dir (well under pollIntervalMs, so job2's own tick can't have fired yet).
+      await new Promise((r) => setTimeout(r, 50));
+
+      // Release job1's stale, gated readdir call now: it resolves using the *current*
+      // real directory listing (which already includes job2's dir), while job2's own
+      // timer is still the active one and hasn't ticked on its own yet.
+      releaseFirstCall!();
+
+      await waitFor(() => runner.getCurrentJob()?.status === 'done');
+      const finalJob = runner.getCurrentJob();
+      expect(finalJob?.outputDir).toMatch(/^testapp-/);
+    } finally {
+      readdirSpy.mockRestore();
+    }
   });
 });

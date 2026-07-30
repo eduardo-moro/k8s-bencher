@@ -87,22 +87,29 @@ export class JobRunner {
     child.stdout?.on('data', appendLog);
     child.stderr?.on('data', appendLog);
 
+    const pollTimer = setInterval(() => {
+      void this.findNewOutputDir(outputPrefix, spawnTime).then((dir) => {
+        if (dir) {
+          job.outputDir = dir;
+          if (this.outputPollTimer === pollTimer) {
+            this.stopPolling();
+          }
+        }
+      });
+    }, this.pollIntervalMs);
+    this.outputPollTimer = pollTimer;
+
     child.on('exit', (code) => {
       job.status = code === 0 ? 'done' : 'failed';
       job.exitCode = code ?? undefined;
       job.finishedAt = new Date().toISOString();
-      this.stopPolling();
-      this.currentProcess = null;
+      if (this.outputPollTimer === pollTimer) {
+        this.stopPolling();
+      }
+      if (this.currentProcess === child) {
+        this.currentProcess = null;
+      }
     });
-
-    this.outputPollTimer = setInterval(() => {
-      void this.findNewOutputDir(outputPrefix, spawnTime).then((dir) => {
-        if (dir) {
-          job.outputDir = dir;
-          this.stopPolling();
-        }
-      });
-    }, this.pollIntervalMs);
 
     return job;
   }
