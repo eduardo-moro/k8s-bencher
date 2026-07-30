@@ -1,6 +1,8 @@
 import Fastify, { FastifyInstance } from 'fastify';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { ConfigFiles } from './lib/configFiles.js';
+import { registerAppRoutes } from './routes/apps.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const DEFAULT_REPO_ROOT = path.resolve(__dirname, '..', '..', '..');
@@ -11,8 +13,8 @@ export function buildServer(options?: { repoRoot?: string }): FastifyInstance {
   const app = Fastify({ logger: true });
   app.get('/health', async () => ({ ok: true }));
 
-  // Later tasks register more routes here, using `repoRoot`.
-  void repoRoot;
+  const configFiles = new ConfigFiles(repoRoot);
+  registerAppRoutes(app, configFiles);
 
   return app;
 }
