@@ -220,55 +220,92 @@ function Invoke-PerftestMatrix {
         $cpu = $combo.cpu
         Write-Host "=== Testando memory=$mem cpu=$cpu ===" -ForegroundColor Cyan
         $startTime = Get-Date
+        $samplerJob = $null
 
-        kubectl set resources "deployment/$($Config.container)" -c $Config.container `
-            --limits="cpu=$cpu,memory=$mem" --requests="cpu=$cpu,memory=$mem"
-        if ($LASTEXITCODE -ne 0) { throw "Falha ao definir os recursos (codigo de saida $LASTEXITCODE)" }
+        # A single combo going wrong - low resources breaking the app, or a harness
+        # hiccup like the k6-completion poll timing out - is one data point, not a
+        # reason to abort every combo still queued behind it. Record what's known
+        # and move on; only truly unrecoverable setup failures (resource patch,
+        # missing pod) still stop the whole matrix.
+        try {
+            kubectl set resources "deployment/$($Config.container)" -c $Config.container `
+                --limits="cpu=$cpu,memory=$mem" --requests="cpu=$cpu,memory=$mem"
+            if ($LASTEXITCODE -ne 0) { throw "Falha ao definir os recursos (codigo de saida $LASTEXITCODE)" }
 
-        kubectl rollout status "deployment/$($Config.container)" --timeout=120s
-        if ($LASTEXITCODE -ne 0) { throw "Falha no rollout apos o ajuste de recursos (codigo de saida $LASTEXITCODE)" }
-        Start-Sleep -Seconds 5
-
-        $pod = kubectl get pod -l "app=$($Config.container)" --field-selector=status.phase=Running -o jsonpath='{.items[0].metadata.name}'
-        if (-not $pod) { throw "Nenhum pod em execucao encontrado para app=$($Config.container) apos o ajuste de recursos" }
-
-        $topLog = Join-Path $OutputDir "top-$mem-$cpu.log"
-        $samplerJob = Start-Job -ScriptBlock {
-            param($podName, $logPath)
-            while ($true) {
-                kubectl top pod $podName --no-headers *>> $logPath
-                Start-Sleep -Seconds 10
+            kubectl rollout status "deployment/$($Config.container)" --timeout=120s
+            $rolloutReady = ($LASTEXITCODE -eq 0)
+            if ($rolloutReady) {
+                Start-Sleep -Seconds 5
+            } else {
+                Write-Host "Rollout nao ficou pronto para memory=$mem cpu=$cpu - registrando falha e seguindo para a proxima combinacao." -ForegroundColor Yellow
             }
-        } -ArgumentList $pod, $topLog
 
-        $k6Out = Join-Path $OutputDir "k6-$mem-$cpu.json"
-        # Unique per-combo Job name (lowercased: k8s object names must be lowercase,
-        # and resource strings like "256Mi"/"250m" contain uppercase letters) so that
-        # no two combos' Jobs/pods ever share a job-name label value.
-        $jobName = "k6-loadtest-$($mem.ToLower())-$($cpu.ToLower())"
-        Start-PerftestK6Job -Config $Config -ScriptFileName $scriptFileName -OutFile $k6Out -JobName $jobName
+            $pod = kubectl get pod -l "app=$($Config.container)" -o jsonpath='{.items[0].metadata.name}'
+            if (-not $pod) { throw "Nenhum pod encontrado para app=$($Config.container) apos o ajuste de recursos" }
 
-        Stop-Job $samplerJob -ErrorAction SilentlyContinue | Out-Null
-        Remove-Job $samplerJob -Force -ErrorAction SilentlyContinue | Out-Null
+            $restartCount = kubectl get pod $pod -o jsonpath='{.status.containerStatuses[0].restartCount}'
+            $lastReason = kubectl get pod $pod -o jsonpath='{.status.containerStatuses[0].lastState.terminated.reason}' 2>$null
+            $oomFlag = if ($lastReason -eq 'OOMKilled') { 'yes' } else { 'no' }
 
-        $restartCount = kubectl get pod $pod -o jsonpath='{.status.containerStatuses[0].restartCount}'
-        $lastReason = kubectl get pod $pod -o jsonpath='{.status.containerStatuses[0].lastState.terminated.reason}' 2>$null
-        $oomFlag = if ($lastReason -eq 'OOMKilled') { 'yes' } else { 'no' }
+            if ($rolloutReady) {
+                $topLog = Join-Path $OutputDir "top-$mem-$cpu.log"
+                $samplerJob = Start-Job -ScriptBlock {
+                    param($podName, $logPath)
+                    while ($true) {
+                        kubectl top pod $podName --no-headers *>> $logPath
+                        Start-Sleep -Seconds 10
+                    }
+                } -ArgumentList $pod, $topLog
 
-        $metrics = Get-Content -Path $k6Out -Raw | ConvertFrom-Json
-        $p95 = $metrics.metrics.http_req_duration.'p(95)'
-        $p99 = $metrics.metrics.http_req_duration.'p(99)'
-        $errRate = $metrics.metrics.http_req_failed.value
-        $httpReqsTotal = $metrics.metrics.http_reqs.count
+                $k6Out = Join-Path $OutputDir "k6-$mem-$cpu.json"
+                # Unique per-combo Job name (lowercased: k8s object names must be lowercase,
+                # and resource strings like "256Mi"/"250m" contain uppercase letters) so that
+                # no two combos' Jobs/pods ever share a job-name label value.
+                $jobName = "k6-loadtest-$($mem.ToLower())-$($cpu.ToLower())"
+                Start-PerftestK6Job -Config $Config -ScriptFileName $scriptFileName -OutFile $k6Out -JobName $jobName
 
-        $endTime = Get-Date
-        $durationSeconds = [int]($endTime - $startTime).TotalSeconds
+                Stop-Job $samplerJob -ErrorAction SilentlyContinue | Out-Null
+                Remove-Job $samplerJob -Force -ErrorAction SilentlyContinue | Out-Null
+                $samplerJob = $null
 
-        "$mem,$cpu,$($startTime.ToString('o')),$($endTime.ToString('o')),$durationSeconds,$p95,$p99,$errRate,$httpReqsTotal,$oomFlag,$restartCount" |
-            Add-Content -Path $resultsPath
+                # Re-read after the load test - restarts/OOMs can also happen under load,
+                # not just during rollout.
+                $restartCount = kubectl get pod $pod -o jsonpath='{.status.containerStatuses[0].restartCount}'
+                $lastReason = kubectl get pod $pod -o jsonpath='{.status.containerStatuses[0].lastState.terminated.reason}' 2>$null
+                $oomFlag = if ($lastReason -eq 'OOMKilled') { 'yes' } else { 'no' }
 
-        $resultColor = if ($oomFlag -eq 'yes' -or $restartCount -gt 0) { 'Red' } else { 'Green' }
-        Write-Host "--- resultado: mem=$mem cpu=$cpu duracao=${durationSeconds}s p95=${p95}ms taxa_erro=$errRate oom=$oomFlag reinicios=$restartCount ---" -ForegroundColor $resultColor
+                $metrics = Get-Content -Path $k6Out -Raw | ConvertFrom-Json
+                $p95 = $metrics.metrics.http_req_duration.'p(95)'
+                $p99 = $metrics.metrics.http_req_duration.'p(99)'
+                $errRate = $metrics.metrics.http_req_failed.value
+                $httpReqsTotal = $metrics.metrics.http_reqs.count
+            } else {
+                $p95 = ''; $p99 = ''; $errRate = ''; $httpReqsTotal = ''
+            }
+
+            $endTime = Get-Date
+            $durationSeconds = [int]($endTime - $startTime).TotalSeconds
+
+            # String interpolation (not -join) for the numeric fields: -join calls
+            # .ToString() under the current culture, which on a pt-BR host renders
+            # decimals like 1.64 as "1,64" and silently splits the CSV column in two.
+            "$mem,$cpu,$($startTime.ToString('o')),$($endTime.ToString('o')),$durationSeconds,$p95,$p99,$errRate,$httpReqsTotal,$oomFlag,$restartCount" |
+                Add-Content -Path $resultsPath
+
+            $resultColor = if (-not $rolloutReady -or $oomFlag -eq 'yes' -or $restartCount -gt 0) { 'Red' } else { 'Green' }
+            Write-Host "--- resultado: mem=$mem cpu=$cpu duracao=${durationSeconds}s p95=${p95}ms taxa_erro=$errRate oom=$oomFlag reinicios=$restartCount ---" -ForegroundColor $resultColor
+        } catch {
+            $endTime = Get-Date
+            $durationSeconds = [int]($endTime - $startTime).TotalSeconds
+            Write-Host "--- falha ao testar mem=$mem cpu=${cpu}: $($_.Exception.Message) - seguindo para a proxima combinacao. ---" -ForegroundColor Red
+            $row = @($mem, $cpu, $startTime.ToString('o'), $endTime.ToString('o'), $durationSeconds, '', '', '', '', '', '') -join ','
+            Add-Content -Path $resultsPath -Value $row
+        } finally {
+            if ($samplerJob) {
+                Stop-Job $samplerJob -ErrorAction SilentlyContinue | Out-Null
+                Remove-Job $samplerJob -Force -ErrorAction SilentlyContinue | Out-Null
+            }
+        }
     }
 
     Write-Host "Matriz concluida. Resultados em $resultsPath" -ForegroundColor Green
