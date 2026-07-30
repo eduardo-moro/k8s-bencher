@@ -2,7 +2,9 @@ import Fastify, { FastifyInstance } from 'fastify';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { ConfigFiles } from './lib/configFiles.js';
+import { JobRunner } from './lib/jobRunner.js';
 import { registerAppRoutes } from './routes/apps.js';
+import { registerRunRoutes } from './routes/runs.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const DEFAULT_REPO_ROOT = path.resolve(__dirname, '..', '..', '..');
@@ -14,7 +16,9 @@ export function buildServer(options?: { repoRoot?: string }): FastifyInstance {
   app.get('/health', async () => ({ ok: true }));
 
   const configFiles = new ConfigFiles(repoRoot);
+  const jobRunner = new JobRunner(repoRoot);
   registerAppRoutes(app, configFiles);
+  registerRunRoutes(app, jobRunner);
 
   return app;
 }
