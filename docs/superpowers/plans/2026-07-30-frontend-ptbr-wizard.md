@@ -1585,12 +1585,682 @@ git commit -m "Translate results page, env status, log view, chip input to pt-BR
 
 ---
 
-### Task 14: Final verification pass
+### Task 14: Wizard layout rework — centered, fixed footer, vertical fields, stable-width step pills
 
-**Files:** none created/modified — this task only verifies Tasks 1-13's combined behavior against the real API.
+Added mid-plan per explicit user request after seeing Tasks 1-10 build the wizard. Purely visual/CSS — no logic changes, no new props, no behavior changes to navigation or validation.
+
+**Files:**
+- Modify: `interface/frontend/src/components/app-wizard/AppWizard.tsx` (full replacement)
+- Modify: `interface/frontend/src/components/app-wizard/StepIndicator.tsx` (full replacement)
+- Modify: `interface/frontend/src/components/app-wizard/StepIdentity.tsx` (full replacement)
+- Modify: `interface/frontend/src/components/app-wizard/StepResources.tsx` (full replacement)
+- Modify: `interface/frontend/src/components/app-wizard/StepStart.tsx` (full replacement)
 
 **Interfaces:**
-- Consumes: everything from Tasks 1-13.
+- Consumes: nothing new — same props/exports as Tasks 1-8 established, unchanged.
+- Produces: nothing new — no exported signature changes anywhere in this task.
+
+- [ ] **Step 1: Replace `AppWizard.tsx`** — two className changes only: the outer wrapper becomes a centered, width-capped column (`mx-auto max-w-3xl`, plus bottom padding so content never sits behind the now-sticky footer), and the Voltar/Salvar e sair/Próximo footer becomes `sticky bottom-0` so its position on screen never changes as step content scrolls (mirrors the existing `sticky top-0` header pattern in `__root.tsx`).
+
+```tsx
+import { useState } from "react";
+import { toast } from "sonner";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent } from "@/components/ui/card";
+import { StepIndicator } from "./StepIndicator";
+import { StepStart } from "./StepStart";
+import { StepIdentity } from "./StepIdentity";
+import { StepResources } from "./StepResources";
+import { StepLoad } from "./StepLoad";
+import { StepManifest } from "./StepManifest";
+import { StepScript } from "./StepScript";
+import { StepReview } from "./StepReview";
+import type { AppDetail } from "@/lib/api";
+
+export type StepKey =
+  | "inicio"
+  | "identidade"
+  | "recursos"
+  | "carga"
+  | "manifest"
+  | "script"
+  | "revisao";
+
+export const emptyApp: AppDetail = {
+  name: "",
+  container: "",
+  resources: { memory: [], cpu: [] },
+  load: { vus: 10, stages: [{ duration: "30s", target: 10 }] },
+  manifestContent: "",
+  scriptContent: "",
+};
+
+export function validateApp(v: AppDetail): Record<string, string> {
+  const errors: Record<string, string> = {};
+  if (!v.name.trim()) errors.name = "O nome é obrigatório";
+  else if (!/^[a-z0-9][a-z0-9-]*$/.test(v.name))
+    errors.name = "Use letras minúsculas, números e hífens";
+  if (!v.container.trim()) errors.container = "O nome do container é obrigatório";
+  if (!v.resources.memory.length) errors.memory = "Adicione pelo menos um nível de memória";
+  if (!v.resources.cpu.length) errors.cpu = "Adicione pelo menos um nível de CPU";
+  if (!Number.isFinite(v.load.vus) || v.load.vus < 1)
+    errors.vus = "O número de VUs precisa ser pelo menos 1";
+  if (!v.load.stages.length) errors.stages = "Adicione pelo menos um estágio";
+  if (v.load.stages.some((s) => !s.duration.trim()))
+    errors.stages = "Todo estágio precisa de uma duração (ex.: 30s)";
+  if (!v.manifestContent.trim()) errors.manifestContent = "O manifest.yaml é obrigatório";
+  if (!v.scriptContent.trim()) errors.scriptContent = "O script do k6 é obrigatório";
+  return errors;
+}
+
+const FIELD_STEP: Record<string, StepKey> = {
+  name: "identidade",
+  container: "identidade",
+  memory: "recursos",
+  cpu: "recursos",
+  vus: "carga",
+  stages: "carga",
+  manifestContent: "manifest",
+  scriptContent: "script",
+};
+
+const STEP_META: Record<Exclude<StepKey, "revisao">, { label: string; title: string; subtitle: string }> = {
+  inicio: {
+    label: "Início",
+    title: "Vamos começar",
+    subtitle: "Você pode começar do zero ou usar o exemplo pronto para já ver tudo funcionando.",
+  },
+  identidade: {
+    label: "Identidade",
+    title: "Identidade",
+    subtitle: "Como o app se chama e qual container dentro do Deployment vamos ajustar.",
+  },
+  recursos: {
+    label: "Recursos",
+    title: "Matriz de recursos",
+    subtitle:
+      "Escolha os níveis de memória e CPU que você quer testar — vamos rodar o k6 em cada combinação.",
+  },
+  carga: {
+    label: "Carga",
+    title: "Perfil de carga",
+    subtitle: "Quantos usuários virtuais e por quanto tempo o k6 deve gerar tráfego.",
+  },
+  manifest: {
+    label: "Manifest",
+    title: "Manifest (manifest.yaml)",
+    subtitle: "O YAML do Kubernetes que descreve o Deployment/Service do app.",
+  },
+  script: {
+    label: "Script k6",
+    title: "Script do k6",
+    subtitle: "O script que faz as requisições contra o app durante a execução.",
+  },
+};
+
+function stepsForMode(mode: "create" | "edit"): StepKey[] {
+  const base: StepKey[] = ["identidade", "recursos", "carga", "manifest", "script", "revisao"];
+  return mode === "create" ? ["inicio", ...base] : base;
+}
+
+export function AppWizard({
+  mode,
+  initialValue,
+  onSave,
+  onCancel,
+  onLoadTemplate,
+  initialStep,
+  onStepChange,
+}: {
+  mode: "create" | "edit";
+  initialValue: AppDetail;
+  onSave: (app: AppDetail) => Promise<void>;
+  onCancel: () => void;
+  onLoadTemplate?: () => Promise<AppDetail>;
+  initialStep?: StepKey;
+  onStepChange?: (step: StepKey) => void;
+}) {
+  const order = stepsForMode(mode);
+  const [value, setValue] = useState<AppDetail>(initialValue);
+  const [errors, setErrors] = useState<Record<string, string>>({});
+  const [step, setStepState] = useState<StepKey>(
+    initialStep && order.includes(initialStep) ? initialStep : order[0],
+  );
+  const [visited, setVisited] = useState<Set<StepKey>>(new Set([step]));
+  const [saving, setSaving] = useState(false);
+  const [loadingExample, setLoadingExample] = useState(false);
+
+  const setStep = (next: StepKey) => {
+    setStepState(next);
+    setVisited((v) => new Set(v).add(next));
+    onStepChange?.(next);
+  };
+
+  const index = order.indexOf(step);
+  const isFirst = index === 0;
+  const isLastContentStep = order[index + 1] === "revisao";
+  const isReview = step === "revisao";
+  const meta = step === "revisao" ? null : STEP_META[step];
+
+  const goBack = () => index > 0 && setStep(order[index - 1]);
+  const goNext = () => index < order.length - 1 && setStep(order[index + 1]);
+
+  const runSave = async () => {
+    const errs = validateApp(value);
+    setErrors(errs);
+    const errorKeys = Object.keys(errs);
+    if (errorKeys.length) {
+      const firstBadStep = order.find((s) => errorKeys.some((k) => FIELD_STEP[k] === s));
+      if (firstBadStep) setStep(firstBadStep);
+      const otherStepsAlsoBad = errorKeys.some((k) => FIELD_STEP[k] !== firstBadStep);
+      toast.error(
+        otherStepsAlsoBad
+          ? "Encontramos um problema aqui — corrija para continuar. Há mais pendências em outras etapas."
+          : "Encontramos um problema aqui — corrija para continuar.",
+      );
+      return;
+    }
+    setSaving(true);
+    try {
+      await onSave(value);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const pickBlank = () => goNext();
+  const pickExample = async () => {
+    if (!onLoadTemplate) {
+      goNext();
+      return;
+    }
+    setLoadingExample(true);
+    try {
+      const tpl = await onLoadTemplate();
+      setValue(tpl);
+      toast.success("Exemplo httpbin carregado");
+      goNext();
+    } catch (e) {
+      toast.error((e as Error).message);
+    } finally {
+      setLoadingExample(false);
+    }
+  };
+
+  const stepperSteps = order
+    .filter((s): s is Exclude<StepKey, "revisao"> => s !== "revisao")
+    .map((s) => ({ key: s as StepKey, label: STEP_META[s].label }))
+    .concat({ key: "revisao" as StepKey, label: "Revisão" });
+
+  return (
+    <div className="mx-auto grid max-w-3xl gap-5 pb-28">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <StepIndicator steps={stepperSteps} current={step} visited={visited} onSelect={setStep} />
+        <button
+          type="button"
+          onClick={onCancel}
+          className="text-xs text-muted-foreground hover:text-foreground"
+        >
+          Cancelar
+        </button>
+      </div>
+
+      {meta && (
+        <div>
+          <h2 className="text-lg font-semibold tracking-tight">{meta.title}</h2>
+          <p className="text-sm text-muted-foreground">{meta.subtitle}</p>
+        </div>
+      )}
+      {isReview && (
+        <div>
+          <h2 className="text-lg font-semibold tracking-tight">Revisão</h2>
+          <p className="text-sm text-muted-foreground">
+            Confira tudo antes de salvar. Clique em "editar" para voltar a qualquer etapa.
+          </p>
+        </div>
+      )}
+
+      <Card>
+        <CardContent className="pt-6">
+          {step === "inicio" && (
+            <StepStart
+              onPickBlank={pickBlank}
+              onPickExample={pickExample}
+              loadingExample={loadingExample}
+            />
+          )}
+          {step === "identidade" && (
+            <StepIdentity value={value} onChange={setValue} errors={errors} lockName={mode === "edit"} />
+          )}
+          {step === "recursos" && <StepResources value={value} onChange={setValue} errors={errors} />}
+          {step === "carga" && <StepLoad value={value} onChange={setValue} errors={errors} />}
+          {step === "manifest" && <StepManifest value={value} onChange={setValue} errors={errors} />}
+          {step === "script" && <StepScript value={value} onChange={setValue} errors={errors} />}
+          {step === "revisao" && (
+            <StepReview value={value} onEditStep={setStep} onSave={runSave} saving={saving} />
+          )}
+        </CardContent>
+      </Card>
+
+      {step !== "inicio" && step !== "revisao" && (
+        <div className="sticky bottom-0 z-30 flex items-center justify-between gap-3 border-t border-border bg-background/95 px-4 py-4 backdrop-blur">
+          <div>
+            {!isFirst && (
+              <Button type="button" variant="ghost" onClick={goBack}>
+                Voltar
+              </Button>
+            )}
+          </div>
+          <div className="flex gap-2">
+            <Button type="button" variant="outline" disabled={saving} onClick={runSave}>
+              {saving ? "Salvando…" : "Salvar e sair"}
+            </Button>
+            <Button type="button" onClick={goNext}>
+              {isLastContentStep ? "Ir para revisão" : "Próximo"}
+            </Button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+```
+
+- [ ] **Step 2: Replace `StepIndicator.tsx`** — wrap the conditional Check icon in a fixed-size slot (`size-3 shrink-0`) that always renders, empty or not, so a given pill's own width never changes as it moves between not-visited → current → visited (previously the icon only existed in the DOM when visited-and-not-current, so that transition added/removed width).
+
+```tsx
+import { Check } from "lucide-react";
+import { cn } from "@/lib/utils";
+import type { StepKey } from "./AppWizard";
+
+export function StepIndicator({
+  steps,
+  current,
+  visited,
+  onSelect,
+}: {
+  steps: { key: StepKey; label: string }[];
+  current: StepKey;
+  visited: Set<StepKey>;
+  onSelect: (step: StepKey) => void;
+}) {
+  return (
+    <ol className="flex flex-wrap items-center gap-1 text-xs">
+      {steps.map((step, i) => {
+        const isCurrent = step.key === current;
+        const isVisited = visited.has(step.key);
+        return (
+          <li key={step.key} className="flex items-center gap-1">
+            {i > 0 && <span className="mx-1 text-muted-foreground">→</span>}
+            <button
+              type="button"
+              onClick={() => onSelect(step.key)}
+              className={cn(
+                "inline-flex items-center gap-1 rounded-full border px-2.5 py-1 font-mono transition-colors",
+                isCurrent
+                  ? "border-primary bg-primary/10 text-primary"
+                  : isVisited
+                    ? "border-success/40 text-success hover:bg-success/10"
+                    : "border-border text-muted-foreground hover:bg-muted",
+              )}
+            >
+              <span className="inline-flex size-3 shrink-0 items-center justify-center">
+                {isVisited && !isCurrent && <Check className="size-3" />}
+              </span>
+              {i + 1}. {step.label}
+            </button>
+          </li>
+        );
+      })}
+    </ol>
+  );
+}
+```
+
+- [ ] **Step 3: Replace `StepIdentity.tsx`** — drop the `sm:grid-cols-2` so Nome do app stacks above Nome do container instead of sitting side by side.
+
+```tsx
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { FieldError } from "./FieldError";
+import type { AppDetail } from "@/lib/api";
+
+export function StepIdentity({
+  value,
+  onChange,
+  errors,
+  lockName,
+}: {
+  value: AppDetail;
+  onChange: (v: AppDetail) => void;
+  errors: Record<string, string>;
+  lockName?: boolean;
+}) {
+  const set = (patch: Partial<AppDetail>) => onChange({ ...value, ...patch });
+
+  return (
+    <div className="grid gap-4">
+      <div>
+        <Label htmlFor="name">Nome do app</Label>
+        <Input
+          id="name"
+          className="mt-1.5 font-mono"
+          value={value.name}
+          disabled={lockName}
+          placeholder="httpbin"
+          onChange={(e) => set({ name: e.target.value })}
+        />
+        {lockName && (
+          <p className="mt-1 text-xs text-muted-foreground">
+            O nome fica travado depois que o app é criado.
+          </p>
+        )}
+        <FieldError message={errors.name} />
+      </div>
+      <div>
+        <Label htmlFor="container">Nome do container</Label>
+        <Input
+          id="container"
+          className="mt-1.5 font-mono"
+          value={value.container}
+          placeholder="httpbin"
+          onChange={(e) => set({ container: e.target.value })}
+        />
+        <FieldError message={errors.container} />
+      </div>
+    </div>
+  );
+}
+```
+
+- [ ] **Step 4: Replace `StepResources.tsx`** — same `sm:grid-cols-2` removal, plus the now-meaningless `sm:col-span-2` on the summary line drops too (a `col-span` only matters inside a multi-column grid).
+
+```tsx
+import { Label } from "@/components/ui/label";
+import { ChipListInput } from "@/components/ChipListInput";
+import { FieldError } from "./FieldError";
+import type { AppDetail } from "@/lib/api";
+
+export function StepResources({
+  value,
+  onChange,
+  errors,
+}: {
+  value: AppDetail;
+  onChange: (v: AppDetail) => void;
+  errors: Record<string, string>;
+}) {
+  const set = (patch: Partial<AppDetail>) => onChange({ ...value, ...patch });
+
+  return (
+    <div className="grid gap-4">
+      <div>
+        <Label>Níveis de memória</Label>
+        <div className="mt-1.5">
+          <ChipListInput
+            label="níveis de memória"
+            values={value.resources.memory}
+            placeholder="128Mi"
+            onChange={(memory) => set({ resources: { ...value.resources, memory } })}
+          />
+        </div>
+        <FieldError message={errors.memory} />
+      </div>
+      <div>
+        <Label>Níveis de CPU</Label>
+        <div className="mt-1.5">
+          <ChipListInput
+            label="níveis de cpu"
+            values={value.resources.cpu}
+            placeholder="250m"
+            onChange={(cpu) => set({ resources: { ...value.resources, cpu } })}
+          />
+        </div>
+        <FieldError message={errors.cpu} />
+      </div>
+      <p className="text-xs text-muted-foreground">
+        A execução varre todas as combinações de memória × CPU:{" "}
+        <span className="font-mono text-foreground">
+          {value.resources.memory.length * value.resources.cpu.length}
+        </span>{" "}
+        níveis.
+      </p>
+    </div>
+  );
+}
+```
+
+- [ ] **Step 5: Replace `StepStart.tsx`** — same `sm:grid-cols-2` removal so the two choice cards (começar do zero / usar o exemplo) stack vertically instead of side by side.
+
+```tsx
+import { Sparkles, FilePlus2, Loader2 } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent } from "@/components/ui/card";
+
+export function StepStart({
+  onPickBlank,
+  onPickExample,
+  loadingExample,
+}: {
+  onPickBlank: () => void;
+  onPickExample: () => void;
+  loadingExample: boolean;
+}) {
+  return (
+    <div className="grid gap-4">
+      <Card
+        className="cursor-pointer transition-colors hover:border-primary"
+        onClick={onPickBlank}
+      >
+        <CardContent className="flex flex-col items-center gap-2 p-6 text-center">
+          <FilePlus2 className="size-6 text-muted-foreground" />
+          <p className="font-medium">Começar do zero</p>
+          <p className="text-xs text-muted-foreground">
+            Você preenche cada campo do seu jeito, passo a passo.
+          </p>
+          <Button type="button" variant="outline" size="sm" onClick={onPickBlank}>
+            Começar do zero
+          </Button>
+        </CardContent>
+      </Card>
+      <Card
+        className="cursor-pointer transition-colors hover:border-primary"
+        onClick={onPickExample}
+      >
+        <CardContent className="flex flex-col items-center gap-2 p-6 text-center">
+          <Sparkles className="size-6 text-muted-foreground" />
+          <p className="font-medium">Usar o exemplo httpbin</p>
+          <p className="text-xs text-muted-foreground">
+            Não sabe por onde começar? Comece pelo exemplo pronto e ajuste depois.
+          </p>
+          <Button type="button" size="sm" disabled={loadingExample} onClick={onPickExample}>
+            {loadingExample ? (
+              <Loader2 className="size-3.5 animate-spin" />
+            ) : (
+              <Sparkles className="size-3.5" />
+            )}
+            Usar o exemplo
+          </Button>
+        </CardContent>
+      </Card>
+    </div>
+  );
+}
+```
+
+- [ ] **Step 6: Typecheck**
+
+```bash
+cd interface/frontend
+npx tsc --noEmit
+```
+Expected: no output.
+
+- [ ] **Step 7: Live-verify the centered layout, sticky footer, and stable pill widths**
+
+```bash
+cd interface/frontend
+npm run dev > /tmp-frontend-dev.log 2>&1 &
+sleep 6
+grep -oE ':[0-9]{4}' /tmp-frontend-dev.log | head -1
+```
+Note the port, then:
+
+```bash
+curl -s "http://localhost:<PORT>/apps/new?passo=identidade" | grep -o "max-w-3xl"
+curl -s "http://localhost:<PORT>/apps/new?passo=identidade" | grep -o "sticky bottom-0"
+```
+Expected: both print a match (confirms the centered-column and sticky-footer classes are present in the server-rendered markup — a real visual/behavioral check needs a browser, which Task 16's manual walkthrough covers; this is just confirming the classes shipped). Then stop the server the same way as earlier live-verification steps (`netstat`/`taskkill` on the noted port).
+
+- [ ] **Step 8: Commit**
+
+```bash
+git add interface/frontend/src/components/app-wizard/AppWizard.tsx interface/frontend/src/components/app-wizard/StepIndicator.tsx interface/frontend/src/components/app-wizard/StepIdentity.tsx interface/frontend/src/components/app-wizard/StepResources.tsx interface/frontend/src/components/app-wizard/StepStart.tsx
+git commit -m "Center wizard layout, pin footer buttons, stack fields vertically, stabilize step pill widths"
+```
+
+---
+
+### Task 15: Run-time estimate on the app detail page
+
+Added mid-plan per explicit user request. Shows an approximate total run duration next to the "Iniciar execução" button, computed from the app's own configured load stages and resource-tier count — the engine runs every stage in sequence, once per memory×cpu combination, so total time scales with both. A flat buffer is included for cluster/rollout overhead per combo, but the UI only ever shows the single combined number — never a breakdown or the word "setup".
+
+**Files:**
+- Create: `interface/frontend/src/lib/estimate.ts`
+- Modify: `interface/frontend/src/routes/apps.$name.index.tsx`
+
+**Interfaces:**
+- Consumes: `AppDetail`'s `load.stages` (`{duration: string, target: number}[]`) and `resources.memory`/`resources.cpu` (`string[]`) from `@/lib/api` (unchanged).
+- Produces: `estimateRunSeconds(app: Pick<AppDetail, "load" | "resources">): number` and `formatEstimate(totalSeconds: number): string`, both used only by `apps.$name.index.tsx` in this task (no other consumers planned).
+
+This task runs after Task 12 (which translates `apps.$name.index.tsx` to Portuguese) — the edit below targets that file's already-translated content, not the original English version.
+
+- [ ] **Step 1: Create `estimate.ts`**
+
+```ts
+import type { AppDetail } from "./api";
+
+const SETUP_BUFFER_SECONDS = 30;
+
+function parseDurationSeconds(duration: string): number {
+  const match = /^(\d+(?:\.\d+)?)(ms|s|m|h)$/.exec(duration.trim());
+  if (!match) return 0;
+  const value = Number(match[1]);
+  switch (match[2]) {
+    case "ms":
+      return value / 1000;
+    case "s":
+      return value;
+    case "m":
+      return value * 60;
+    case "h":
+      return value * 3600;
+    default:
+      return 0;
+  }
+}
+
+export function estimateRunSeconds(app: Pick<AppDetail, "load" | "resources">): number {
+  const stageSeconds = app.load.stages.reduce((sum, s) => sum + parseDurationSeconds(s.duration), 0);
+  const combos = app.resources.memory.length * app.resources.cpu.length;
+  return stageSeconds * combos + SETUP_BUFFER_SECONDS;
+}
+
+export function formatEstimate(totalSeconds: number): string {
+  if (totalSeconds < 60) return `~${Math.round(totalSeconds)}s`;
+  return `~${Math.round(totalSeconds / 60)} min`;
+}
+```
+
+- [ ] **Step 2: Edit `apps.$name.index.tsx`** — add the import, and replace the button-row wrapper so the estimate sits right under the action buttons, right-aligned to match them:
+
+Add to the top imports (alongside the existing `api`/`formatElapsed`/`isActive` import line):
+
+```tsx
+import { estimateRunSeconds, formatEstimate } from "@/lib/estimate";
+```
+
+Replace this exact block (the button row in the page header, as it reads after Task 12's translation):
+
+```tsx
+        <div className="flex gap-2">
+          <Button variant="outline" asChild>
+            <Link to="/apps/$name/edit" params={{ name }}>
+              <Pencil className="size-4" /> Editar
+            </Link>
+          </Button>
+          <Button
+            disabled={globallyRunning || startRun.isPending}
+            title={
+              globallyRunning
+                ? "Já existe uma execução em andamento — só existe um cluster kind"
+                : "Iniciar uma execução completa da matriz de recursos"
+            }
+            onClick={() => startRun.mutate(name)}
+          >
+            <Play className="size-4" /> Iniciar execução
+          </Button>
+        </div>
+```
+
+with:
+
+```tsx
+        <div className="flex flex-col items-end gap-1">
+          <div className="flex gap-2">
+            <Button variant="outline" asChild>
+              <Link to="/apps/$name/edit" params={{ name }}>
+                <Pencil className="size-4" /> Editar
+              </Link>
+            </Button>
+            <Button
+              disabled={globallyRunning || startRun.isPending}
+              title={
+                globallyRunning
+                  ? "Já existe uma execução em andamento — só existe um cluster kind"
+                  : "Iniciar uma execução completa da matriz de recursos"
+              }
+              onClick={() => startRun.mutate(name)}
+            >
+              <Play className="size-4" /> Iniciar execução
+            </Button>
+          </div>
+          <span className="font-mono text-xs text-muted-foreground">
+            tempo estimado: {formatEstimate(estimateRunSeconds(app))}
+          </span>
+        </div>
+```
+
+- [ ] **Step 3: Typecheck**
+
+```bash
+cd interface/frontend
+npx tsc --noEmit
+```
+Expected: no output.
+
+- [ ] **Step 4: Grep-verify**
+
+```bash
+grep -c "tempo estimado" interface/frontend/src/routes/apps.\$name.index.tsx
+```
+Expected: prints `1`.
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add interface/frontend/src/lib/estimate.ts interface/frontend/src/routes/apps.\$name.index.tsx
+git commit -m "Add estimated run duration next to Iniciar execucao"
+```
+
+---
+
+### Task 16: Final verification pass
+
+**Files:** none created/modified — this task only verifies Tasks 1-15's combined behavior against the real API.
+
+**Interfaces:**
+- Consumes: everything from Tasks 1-15.
 
 - [ ] **Step 1: Full typecheck**
 
@@ -1629,6 +2299,9 @@ Note the ports printed for API (3001) and frontend (Vite's chosen port), then in
 6. From the app detail page, click **Iniciar execução**, confirm the Run card and RunBanner show Portuguese status labels while it runs, and **Cancelar** stops it cleanly.
 7. Click **Editar** on an existing app — confirm it starts at Identidade (not Início) with the name field locked, and **Salvar e sair** from the middle of the wizard (e.g. from Carga, without visiting Manifest/Script) still validates the whole form and saves correctly.
 8. Visit a past run's results page — confirm the table headers, "este nível quebrou o app" warning, and "Baixar CSV bruto" link are all in Portuguese.
+9. While in the wizard (any create/edit flow), resize the browser window shorter and scroll a step with long content (e.g. Manifest) — confirm the Voltar/Salvar e sair/Próximo row stays pinned to the bottom of the viewport instead of scrolling away, and the whole wizard column reads as a centered, capped-width block rather than spanning the full page. Confirm Identidade, Recursos, and the Início choice cards stack their fields vertically (no side-by-side columns).
+10. Click through several steps via the top stepper (not just Próximo/Voltar) and watch a given pill as it goes from not-visited to current to visited — confirm its width doesn't visibly shift when the checkmark appears/disappears.
+11. On an app detail page, confirm a "tempo estimado: ~Xmin" (or "~Xs") line appears next to the Editar/Iniciar execução buttons, and that it changes if you edit the app's stages or resource tiers to be larger/smaller.
 
 Expected: every step above behaves as described, entirely in Portuguese except backend-sourced error text (per Global Constraints) and technical loanwords (app/container/cluster/manifest/script).
 
@@ -1636,10 +2309,10 @@ Expected: every step above behaves as described, entirely in Portuguese except b
 
 Press Ctrl+C in the `make interface` terminal (the `trap 'kill 0'` in the Makefile stops both the API and frontend dev servers together).
 
-- [ ] **Step 5: No commit needed** — this task is validation only, nothing to add to git beyond what Tasks 1-13 already committed.
+- [ ] **Step 5: No commit needed** — this task is validation only, nothing to add to git beyond what Tasks 1-15 already committed.
 
 ---
 
 ## Post-plan state
 
-`interface/frontend/` is entirely in Brazilian Portuguese, and creating or editing an app's config is a guided multi-step wizard (Início → Identidade → Recursos → Carga → Manifest → Script → Revisão) instead of one long page — with free navigation between steps, a persistent "Salvar e sair" escape hatch that validates and jumps to the first problem step, and a review screen before anything is actually saved. No backend or API-contract changes.
+`interface/frontend/` is entirely in Brazilian Portuguese, and creating or editing an app's config is a guided multi-step wizard (Início → Identidade → Recursos → Carga → Manifest → Script → Revisão) instead of one long page — with free navigation between steps, a persistent "Salvar e sair" escape hatch that validates and jumps to the first problem step, and a review screen before anything is actually saved. The wizard renders as a centered, capped-width column with a pinned footer and vertically-stacked fields, and its stepper pills hold a constant width regardless of visited/current state. The app detail page shows an approximate total run duration next to the run/edit actions, computed from the app's own load stages and resource-tier count. No backend or API-contract changes.
