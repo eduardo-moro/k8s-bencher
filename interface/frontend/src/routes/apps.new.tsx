@@ -1,24 +1,26 @@
-import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
+import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { useState } from "react";
-import { ArrowLeft, Save, Sparkles } from "lucide-react";
 import { toast } from "sonner";
-import { Button } from "@/components/ui/button";
-import { AppForm, emptyApp, validateApp } from "@/components/AppForm";
+import { AppWizard, emptyApp, type StepKey } from "@/components/app-wizard/AppWizard";
 import { api, type AppDetail } from "@/lib/api";
 
+type NewAppSearch = { passo?: string };
+
 export const Route = createFileRoute("/apps/new")({
+  validateSearch: (search: Record<string, unknown>): NewAppSearch => ({
+    passo: typeof search.passo === "string" ? search.passo : undefined,
+  }),
   head: () => ({
     meta: [
-      { title: "New app — perftest console" },
+      { title: "Novo app — console perftest" },
       {
         name: "description",
-        content: "Configure a new app: container, resource sweep matrix, k6 load profile.",
+        content: "Configure um novo app: container, matriz de recursos e perfil de carga do k6.",
       },
-      { property: "og:title", content: "New app — perftest console" },
+      { property: "og:title", content: "Novo app — console perftest" },
       {
         property: "og:description",
-        content: "Configure a new app for Kubernetes resource sweeps.",
+        content: "Configure um novo app para varreduras de recursos no Kubernetes.",
       },
     ],
   }),
@@ -26,68 +28,26 @@ export const Route = createFileRoute("/apps/new")({
 });
 
 function NewApp() {
-  const [value, setValue] = useState<AppDetail>(emptyApp);
-  const [errors, setErrors] = useState<Record<string, string>>({});
   const navigate = useNavigate();
   const qc = useQueryClient();
+  const { passo } = Route.useSearch();
 
-  const loadTemplate = useMutation({
-    mutationFn: api.template,
-    onSuccess: (tpl) => {
-      setValue(tpl);
-      setErrors({});
-      toast.success("Loaded the httpbin example");
-    },
-    onError: (e: Error) => toast.error(e.message),
-  });
-
-  const create = useMutation({
-    mutationFn: (body: AppDetail) => api.createApp(body),
-    onSuccess: (app) => {
-      qc.invalidateQueries({ queryKey: ["apps"] });
-      toast.success(`Created ${app.name}`);
-      navigate({ to: "/apps/$name", params: { name: app.name } });
-    },
-    onError: (e: Error) => toast.error(e.message),
-  });
-
-  const submit = () => {
-    const errs = validateApp(value);
-    setErrors(errs);
-    if (Object.keys(errs).length) {
-      toast.error("Fix the highlighted fields first");
-      return;
-    }
-    create.mutate(value);
-  };
+  const create = useMutation({ mutationFn: (body: AppDetail) => api.createApp(body) });
 
   return (
-    <div className="grid gap-5">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div>
-          <Link
-            to="/"
-            className="inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground"
-          >
-            <ArrowLeft className="size-3.5" /> Apps
-          </Link>
-          <h1 className="text-xl font-semibold tracking-tight">New app</h1>
-        </div>
-        <div className="flex gap-2">
-          <Button
-            variant="outline"
-            onClick={() => loadTemplate.mutate()}
-            disabled={loadTemplate.isPending}
-          >
-            <Sparkles className="size-4" /> Start from httpbin example
-          </Button>
-          <Button onClick={submit} disabled={create.isPending}>
-            <Save className="size-4" /> Create app
-          </Button>
-        </div>
-      </div>
-
-      <AppForm value={value} onChange={setValue} errors={errors} />
-    </div>
+    <AppWizard
+      mode="create"
+      initialValue={emptyApp}
+      initialStep={passo as StepKey | undefined}
+      onStepChange={(next) => navigate({ to: "/apps/new", search: { passo: next }, replace: true })}
+      onLoadTemplate={api.template}
+      onSave={async (app) => {
+        const created = await create.mutateAsync(app);
+        qc.invalidateQueries({ queryKey: ["apps"] });
+        toast.success(`App ${created.name} criado`);
+        navigate({ to: "/apps/$name", params: { name: created.name } });
+      }}
+      onCancel={() => navigate({ to: "/" })}
+    />
   );
 }
