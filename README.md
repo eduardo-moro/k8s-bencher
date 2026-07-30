@@ -103,6 +103,38 @@ load:
     - {duration: 10s, target: 0}
 ```
 
+### Entendendo `load.stages`
+
+Cada item de `stages` vira um `--stage <duration>:<target>` passado para o
+`k6 run`. O k6 usa essa lista para ramp**ar** o número de usuários virtuais
+(VUs) ao longo do tempo, um estágio depois do outro:
+
+- **1º estágio** (`20s`, alvo `15`): nos primeiros 20 segundos, sobe
+  gradualmente de 0 até 15 VUs simultâneos.
+- **2º estágio** (`120s`, alvo `15`): nos 120 segundos seguintes, mantém 15
+  VUs (o alvo é igual a onde o estágio anterior parou) — é o platô de carga
+  constante, onde a maior parte da medição realmente acontece.
+- **3º estágio** (`10s`, alvo `0`): nos últimos 10 segundos, desce de volta
+  de 15 para 0 VUs.
+
+Ou seja, `target` é sempre "quantos VUs ao **final** deste estágio", não
+"durante" ele — cada estágio parte de onde o anterior terminou. A duração
+total do teste de cada combinação de memória/CPU é a soma de todos os
+estágios (20+120+10 = 150s no exemplo acima).
+
+Por que subir/descer gradualmente em vez de simplesmente disparar 15 VUs de
+uma vez? Tráfego real não chega em pico instantâneo, e um corte abrupto no
+final derrubaria requisições no meio do caminho, distorcendo a taxa de erro
+— subida/platô/descida é o padrão que o próprio k6 recomenda para isso.
+
+Vale notar: o campo `vus` em si não controla diretamente a concorrência —
+ele só é repassado ao pod do k6 como a env var `VUS`. No script de exemplo
+(`templates/loadtest.example.js`), essa variável é lida mas não é usada em
+lugar nenhum; quem realmente define quantos VUs rodam em cada momento são os
+alvos (`target`) dentro de `stages`. Se o seu script quiser usar
+`__ENV.VUS` para alguma lógica própria, pode; caso contrário, é seguro
+ignorar esse campo.
+
 ## Saída (`output/<nome>-<timestamp>/`)
 
 Cada execução cria uma pasta com:
