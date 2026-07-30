@@ -1,4 +1,5 @@
 import Fastify, { FastifyInstance } from 'fastify';
+import cors from '@fastify/cors';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { ConfigFiles } from './lib/configFiles.js';
@@ -15,6 +16,10 @@ export function buildServer(options?: { repoRoot?: string }): FastifyInstance {
   const repoRoot = options?.repoRoot ?? DEFAULT_REPO_ROOT;
 
   const app = Fastify({ logger: true });
+  // Local, single-user dev tool (same trust model as running perftest.ps1
+  // directly) - the frontend's dev server port isn't fixed, so reflect
+  // whatever Origin the browser sends rather than hardcoding one.
+  void app.register(cors, { origin: true });
   app.get('/health', async () => ({ ok: true }));
 
   const configFiles = new ConfigFiles(repoRoot);

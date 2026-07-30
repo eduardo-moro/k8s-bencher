@@ -9,6 +9,7 @@
     "test": "vitest run"
   },
   "dependencies": {
+    "@fastify/cors": "^8.5.0",
     "fastify": "^4.28.1",
     "yaml": "^2.5.1"
   },
