@@ -190,7 +190,8 @@ function Start-PerftestK6Job {
         if ($waited -ge 240) { throw "Timed out waiting for k6 job '$pod' to finish" }
     }
 
-    kubectl cp "${pod}:/results/summary.json" $OutFile
+    $relativeOutFile = [System.IO.Path]::GetRelativePath((Get-Location).Path, $OutFile)
+    kubectl cp "${pod}:/results/summary.json" $relativeOutFile
     if ($LASTEXITCODE -ne 0) { throw "kubectl cp of k6 summary.json failed with exit code $LASTEXITCODE" }
 }
 
