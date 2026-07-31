@@ -42,6 +42,11 @@ function startApiProcess(dataRoot: string): void {
   });
   apiProcess.stdout?.on('data', (chunk) => console.log(`[api] ${chunk}`));
   apiProcess.stderr?.on('data', (chunk) => console.error(`[api] ${chunk}`));
+  // An unhandled 'error' on a ChildProcess (e.g. the spawn itself failing)
+  // would otherwise throw inside Electron's main process and can take the
+  // whole app down - waitForApiHealth's own timeout already surfaces a
+  // user-visible error page, so this only needs to keep the crash contained.
+  apiProcess.on('error', (err) => console.error('[api] failed to start:', err));
 }
 
 function waitForApiHealth(retries = 30): Promise<void> {
