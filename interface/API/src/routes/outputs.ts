@@ -7,7 +7,7 @@ import { statusForError, NotFoundError, ValidationError } from '../lib/errors.js
 
 async function assertOwnedOutputFolder(
   configFiles: ConfigFiles,
-  repoRoot: string,
+  dataRoot: string,
   name: string,
   folder: string
 ): Promise<void> {
@@ -20,19 +20,19 @@ async function assertOwnedOutputFolder(
     throw new NotFoundError(`Output folder '${folder}' does not belong to app '${name}'`);
   }
 
-  const folderPath = path.join(repoRoot, 'output', folder);
+  const folderPath = path.join(dataRoot, 'output', folder);
   const stat = await fs.stat(folderPath).catch(() => null);
   if (!stat || !stat.isDirectory()) {
     throw new NotFoundError(`Output folder '${folder}' not found`);
   }
 }
 
-export function registerOutputRoutes(app: FastifyInstance, configFiles: ConfigFiles, repoRoot: string): void {
+export function registerOutputRoutes(app: FastifyInstance, configFiles: ConfigFiles, dataRoot: string): void {
   app.get('/apps/:name/outputs', async (req, reply) => {
     const { name } = req.params as { name: string };
     try {
       const appDetail = await configFiles.getApp(name);
-      const outputRoot = path.join(repoRoot, 'output');
+      const outputRoot = path.join(dataRoot, 'output');
       let entries: string[];
       try {
         entries = await fs.readdir(outputRoot);
@@ -58,8 +58,8 @@ export function registerOutputRoutes(app: FastifyInstance, configFiles: ConfigFi
   app.get('/apps/:name/outputs/:folder', async (req, reply) => {
     const { name, folder } = req.params as { name: string; folder: string };
     try {
-      await assertOwnedOutputFolder(configFiles, repoRoot, name, folder);
-      const csvText = await fs.readFile(path.join(repoRoot, 'output', folder, 'results.csv'), 'utf8');
+      await assertOwnedOutputFolder(configFiles, dataRoot, name, folder);
+      const csvText = await fs.readFile(path.join(dataRoot, 'output', folder, 'results.csv'), 'utf8');
       return { rows: parseResultsCsv(csvText) };
     } catch (err) {
       reply.code(statusForError(err));
@@ -70,8 +70,8 @@ export function registerOutputRoutes(app: FastifyInstance, configFiles: ConfigFi
   app.get('/apps/:name/outputs/:folder/raw', async (req, reply) => {
     const { name, folder } = req.params as { name: string; folder: string };
     try {
-      await assertOwnedOutputFolder(configFiles, repoRoot, name, folder);
-      const csvText = await fs.readFile(path.join(repoRoot, 'output', folder, 'results.csv'), 'utf8');
+      await assertOwnedOutputFolder(configFiles, dataRoot, name, folder);
+      const csvText = await fs.readFile(path.join(dataRoot, 'output', folder, 'results.csv'), 'utf8');
       reply.header('Content-Type', 'text/csv');
       return csvText;
     } catch (err) {

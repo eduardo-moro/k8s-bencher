@@ -7,9 +7,9 @@ export interface CheckResult {
   output: string;
 }
 
-function defaultRunCheck(repoRoot: string): Promise<CheckResult> {
+function defaultRunCheck(engineRoot: string): Promise<CheckResult> {
   return new Promise((resolve) => {
-    const child = spawn('pwsh', ['-File', path.join(repoRoot, 'perftest.ps1'), '-Check'], { cwd: repoRoot });
+    const child = spawn('pwsh', ['-File', path.join(engineRoot, 'perftest.ps1'), '-Check'], { cwd: engineRoot });
     let output = '';
     child.stdout?.on('data', (chunk: Buffer) => {
       output += chunk.toString();
@@ -23,9 +23,9 @@ function defaultRunCheck(repoRoot: string): Promise<CheckResult> {
 
 export function registerCheckRoute(
   app: FastifyInstance,
-  repoRoot: string,
+  engineRoot: string,
   options?: { runCheck?: () => Promise<CheckResult> }
 ): void {
-  const runCheck = options?.runCheck ?? (() => defaultRunCheck(repoRoot));
+  const runCheck = options?.runCheck ?? (() => defaultRunCheck(engineRoot));
   app.get('/check', async () => runCheck());
 }
