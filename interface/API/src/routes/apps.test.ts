@@ -28,14 +28,14 @@ afterEach(async () => {
 
 describe('apps routes', () => {
   it('GET /apps returns [] with no apps yet', async () => {
-    const app = buildServer({ repoRoot });
+    const app = buildServer({ dataRoot: repoRoot, engineRoot: repoRoot });
     const res = await app.inject({ method: 'GET', url: '/apps' });
     expect(res.statusCode).toBe(200);
     expect(res.json()).toEqual([]);
   });
 
   it('POST /apps creates an app, GET /apps/:name returns it', async () => {
-    const app = buildServer({ repoRoot });
+    const app = buildServer({ dataRoot: repoRoot, engineRoot: repoRoot });
 
     const createRes = await app.inject({ method: 'POST', url: '/apps', payload: sampleBody });
     expect(createRes.statusCode).toBe(201);
@@ -46,7 +46,7 @@ describe('apps routes', () => {
   });
 
   it('POST /apps with a missing required field returns 400', async () => {
-    const app = buildServer({ repoRoot });
+    const app = buildServer({ dataRoot: repoRoot, engineRoot: repoRoot });
     const { container, ...withoutContainer } = sampleBody;
     void container;
     const res = await app.inject({ method: 'POST', url: '/apps', payload: withoutContainer });
@@ -54,20 +54,20 @@ describe('apps routes', () => {
   });
 
   it('POST /apps twice with the same name returns 409', async () => {
-    const app = buildServer({ repoRoot });
+    const app = buildServer({ dataRoot: repoRoot, engineRoot: repoRoot });
     await app.inject({ method: 'POST', url: '/apps', payload: sampleBody });
     const res = await app.inject({ method: 'POST', url: '/apps', payload: sampleBody });
     expect(res.statusCode).toBe(409);
   });
 
   it('GET /apps/:name for an unknown app returns 404', async () => {
-    const app = buildServer({ repoRoot });
+    const app = buildServer({ dataRoot: repoRoot, engineRoot: repoRoot });
     const res = await app.inject({ method: 'GET', url: '/apps/nope' });
     expect(res.statusCode).toBe(404);
   });
 
   it('PUT /apps/:name updates fields', async () => {
-    const app = buildServer({ repoRoot });
+    const app = buildServer({ dataRoot: repoRoot, engineRoot: repoRoot });
     await app.inject({ method: 'POST', url: '/apps', payload: sampleBody });
 
     const res = await app.inject({
@@ -80,7 +80,7 @@ describe('apps routes', () => {
   });
 
   it('DELETE /apps/:name removes it', async () => {
-    const app = buildServer({ repoRoot });
+    const app = buildServer({ dataRoot: repoRoot, engineRoot: repoRoot });
     await app.inject({ method: 'POST', url: '/apps', payload: sampleBody });
 
     const deleteRes = await app.inject({ method: 'DELETE', url: '/apps/myapp' });
