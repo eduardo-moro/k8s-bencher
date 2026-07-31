@@ -215,6 +215,8 @@ export function AppWizard({
     setSaving(true);
     try {
       await onSave(value);
+    } catch (e) {
+      toast.error((e as Error).message);
     } finally {
       setSaving(false);
     }
