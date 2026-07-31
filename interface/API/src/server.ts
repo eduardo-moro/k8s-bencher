@@ -35,7 +35,7 @@ export function buildServer(options?: { repoRoot?: string }): FastifyInstance {
 const isMainModule = process.argv[1] === fileURLToPath(import.meta.url);
 if (isMainModule) {
   const app = buildServer();
-  const port = process.env.PORT ? Number(process.env.PORT) : 3001;
+  const port = process.env.PORT ? Number(process.env.PORT) : 8026;
   app.listen({ port, host: '0.0.0.0' }).then(() => {
     app.log.info(`perftest-api listening on port ${port}`);
   });
