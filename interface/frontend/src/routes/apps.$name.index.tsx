@@ -8,6 +8,7 @@ import { LogView } from "@/components/LogView";
 import { StatusBadge } from "@/components/StatusBadge";
 import { useCancelRun, useCurrentJob, useStartRun } from "@/hooks/useJob";
 import { api, formatElapsed, isActive } from "@/lib/api";
+import { estimateRunSeconds, formatEstimate } from "@/lib/estimate";
 
 export const Route = createFileRoute("/apps/$name/")({
   head: () => ({
@@ -76,23 +77,28 @@ function AppDetailPage() {
             {app.resources.memory.length * app.resources.cpu.length} níveis
           </p>
         </div>
-        <div className="flex gap-2">
-          <Button variant="outline" asChild>
-            <Link to="/apps/$name/edit" params={{ name }}>
-              <Pencil className="size-4" /> Editar
-            </Link>
-          </Button>
-          <Button
-            disabled={globallyRunning || startRun.isPending}
-            title={
-              globallyRunning
-                ? "Já existe uma execução em andamento — só existe um cluster kind"
-                : "Iniciar uma execução completa da matriz de recursos"
-            }
-            onClick={() => startRun.mutate(name)}
-          >
-            <Play className="size-4" /> Iniciar execução
-          </Button>
+        <div className="flex flex-col items-end gap-1">
+          <div className="flex gap-2">
+            <Button variant="outline" asChild>
+              <Link to="/apps/$name/edit" params={{ name }}>
+                <Pencil className="size-4" /> Editar
+              </Link>
+            </Button>
+            <Button
+              disabled={globallyRunning || startRun.isPending}
+              title={
+                globallyRunning
+                  ? "Já existe uma execução em andamento — só existe um cluster kind"
+                  : "Iniciar uma execução completa da matriz de recursos"
+              }
+              onClick={() => startRun.mutate(name)}
+            >
+              <Play className="size-4" /> Iniciar execução
+            </Button>
+          </div>
+          <span className="font-mono text-xs text-muted-foreground">
+            tempo estimado: {formatEstimate(estimateRunSeconds(app))}
+          </span>
         </div>
       </div>
 
