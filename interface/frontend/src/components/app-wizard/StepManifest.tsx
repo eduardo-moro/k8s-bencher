@@ -1,4 +1,4 @@
-import { Textarea } from "@/components/ui/textarea";
+import { CodeEditor } from "@/components/CodeEditor";
 import { FieldError } from "./FieldError";
 import type { AppDetail } from "@/lib/api";
 
@@ -16,12 +16,11 @@ export function StepManifest({
       <p className="mb-2 text-xs text-muted-foreground">
         Cole aqui o manifesto do Kubernetes (Deployment, Service etc.) que descreve o app.
       </p>
-      <Textarea
-        aria-label="Manifest YAML"
-        spellCheck={false}
-        className="min-h-72 bg-terminal font-mono text-xs text-terminal-foreground"
+      <CodeEditor
+        ariaLabel="Manifest YAML"
+        language="yaml"
         value={value.manifestContent}
-        onChange={(e) => onChange({ ...value, manifestContent: e.target.value })}
+        onChange={(manifestContent) => onChange({ ...value, manifestContent })}
       />
       <FieldError message={errors.manifestContent} />
     </div>

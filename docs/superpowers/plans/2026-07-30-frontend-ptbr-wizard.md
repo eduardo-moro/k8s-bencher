@@ -2393,12 +2393,84 @@ git commit -m "Give the blank start flow real starter manifest/k6 script content
 
 ---
 
-### Task 17: Final verification pass
+### Task 17: Syntax-highlighted Manifest/k6 Script editors
 
-**Files:** none created/modified — this task only verifies Tasks 1-16's combined behavior against the real API.
+Added mid-plan per explicit user request. Replaces the plain `Textarea` in the Manifest and Script do k6 steps with a real syntax-highlighting code editor (CodeMirror 6, chosen over Monaco for a much smaller bundle). Implemented directly by the controller rather than dispatched (the dependency install had a side effect worth investigating firsthand — see note below — and the resulting code is simple enough that redoing it through a fresh dispatch would have cost more than it saved).
+
+**Files:**
+- Create: `interface/frontend/src/components/CodeEditor.tsx`
+- Modify: `interface/frontend/src/components/app-wizard/StepManifest.tsx`
+- Modify: `interface/frontend/src/components/app-wizard/StepScript.tsx`
+- Modify: `interface/frontend/package.json`, `package-lock.json` (new dependencies)
 
 **Interfaces:**
-- Consumes: everything from Tasks 1-16.
+- Produces: `CodeEditor({ value, onChange, language, ariaLabel }: { value: string; onChange: (value: string) => void; language: "yaml" | "javascript"; ariaLabel: string })`, used by `StepManifest`/`StepScript` only.
+
+**Dependencies added:** `@uiw/react-codemirror`, `@codemirror/lang-yaml`, `@codemirror/lang-javascript`, `@codemirror/theme-one-dark`.
+
+**Note on a side effect discovered during install:** the first attempt to add a new package to `interface/frontend` triggered `@lovable.dev/vite-tanstack-config`'s own tooling to silently strip its "connected to Lovable" markers from `AGENTS.md`, `README.md`, and a few meta tags in `__root.tsx` — confirmed via `git diff` before anything was committed, fully reverted, and confirmed with the user before proceeding (accepted as fine, since all further development happens here rather than through Lovable's hosted editor). The second install (the one actually kept) did not reproduce this side effect — `AGENTS.md`/`README.md`/`__root.tsx` are untouched in the diff that was committed.
+
+**`CodeEditor.tsx`:**
+
+```tsx
+import CodeMirror, { EditorView } from "@uiw/react-codemirror";
+import { yaml } from "@codemirror/lang-yaml";
+import { javascript } from "@codemirror/lang-javascript";
+import { oneDark } from "@codemirror/theme-one-dark";
+
+const sizeTheme = EditorView.theme({
+  "&": { minHeight: "18rem", fontSize: "0.75rem" },
+  ".cm-scroller": { overflow: "auto", fontFamily: "var(--font-mono)" },
+});
+
+export function CodeEditor({
+  value,
+  onChange,
+  language,
+  ariaLabel,
+}: {
+  value: string;
+  onChange: (value: string) => void;
+  language: "yaml" | "javascript";
+  ariaLabel: string;
+}) {
+  return (
+    <div
+      role="group"
+      aria-label={ariaLabel}
+      className="overflow-hidden rounded-md border border-input"
+    >
+      <CodeMirror
+        value={value}
+        onChange={onChange}
+        theme={oneDark}
+        extensions={[language === "yaml" ? yaml() : javascript(), sizeTheme]}
+        basicSetup={{ foldGutter: false }}
+      />
+    </div>
+  );
+}
+```
+
+`StepManifest.tsx` and `StepScript.tsx` each swap their `Textarea` import/usage for `CodeEditor` (language `"yaml"` and `"javascript"` respectively), passing the same `value`/`onChange` wiring as before — no other change to either file.
+
+**Verification performed:** `npx tsc --noEmit` clean. Live-checked against a real dev server that `/apps/new?passo=manifest` and `/apps/new?passo=script` both return `200` with the step's label text present in the server-rendered HTML — CodeMirror itself only mounts client-side (same category of limitation as every other query-gated/interactive widget in this app already documented in Task 10: not observable via `curl`, confirmed instead by a clean SSR response with no error and a correct typecheck). A real browser check (does the editor actually paint with colored tokens, does typing work) is deferred to Task 18's manual walkthrough, which now includes it.
+
+**Commit:**
+
+```bash
+git add interface/frontend/src/components/CodeEditor.tsx interface/frontend/src/components/app-wizard/StepManifest.tsx interface/frontend/src/components/app-wizard/StepScript.tsx interface/frontend/package.json interface/frontend/package-lock.json
+git commit -m "Add syntax-highlighted Manifest/k6 Script editors (CodeMirror)"
+```
+
+---
+
+### Task 18: Final verification pass
+
+**Files:** none created/modified — this task only verifies Tasks 1-17's combined behavior against the real API.
+
+**Interfaces:**
+- Consumes: everything from Tasks 1-17.
 
 - [ ] **Step 1: Full typecheck**
 
@@ -2441,6 +2513,7 @@ Note the ports printed for API (3001) and frontend (Vite's chosen port), then in
 10. Click through several steps via the top stepper (not just Próximo/Voltar) and watch a given pill as it goes from not-visited to current to visited — confirm its width doesn't visibly shift when the checkmark appears/disappears.
 11. On an app detail page, confirm a "tempo estimado: ~Xmin" (or "~Xs") line appears next to the Editar/Iniciar execução buttons, and that it changes if you edit the app's stages or resource tiers to be larger/smaller.
 12. Click **Novo app** → **Começar do zero** → advance to Manifest and Script — confirm both already show real starter YAML/JS (not blank textareas), with the handful of Portuguese comments explaining `Recreate`, the matching requests/limits, and where to point `BASE_URL`.
+13. On the Manifest and Script do k6 steps, confirm the editor shows colored syntax (keywords, strings, comments in different colors, not plain monochrome text) and that typing/editing still updates the field normally.
 
 Expected: every step above behaves as described, entirely in Portuguese except backend-sourced error text (per Global Constraints) and technical loanwords (app/container/cluster/manifest/script).
 
@@ -2448,10 +2521,10 @@ Expected: every step above behaves as described, entirely in Portuguese except b
 
 Press Ctrl+C in the `make interface` terminal (the `trap 'kill 0'` in the Makefile stops both the API and frontend dev servers together).
 
-- [ ] **Step 5: No commit needed** — this task is validation only, nothing to add to git beyond what Tasks 1-16 already committed.
+- [ ] **Step 5: No commit needed** — this task is validation only, nothing to add to git beyond what Tasks 1-17 already committed.
 
 ---
 
 ## Post-plan state
 
-`interface/frontend/` is entirely in Brazilian Portuguese, and creating or editing an app's config is a guided multi-step wizard (Início → Identidade → Recursos → Carga → Manifest → Script → Revisão) instead of one long page — with free navigation between steps, a persistent "Salvar e sair" escape hatch that validates and jumps to the first problem step, and a review screen before anything is actually saved. The wizard renders as a centered, capped-width column with a pinned footer and vertically-stacked fields, and its stepper pills hold a constant width regardless of visited/current state. The app detail page shows an approximate total run duration next to the run/edit actions, computed from the app's own load stages and resource-tier count. Starting a new app from scratch begins with real, lightly-commented example manifest/k6-script content instead of blank textareas. No backend or API-contract changes.
+`interface/frontend/` is entirely in Brazilian Portuguese, and creating or editing an app's config is a guided multi-step wizard (Início → Identidade → Recursos → Carga → Manifest → Script → Revisão) instead of one long page — with free navigation between steps, a persistent "Salvar e sair" escape hatch that validates and jumps to the first problem step, and a review screen before anything is actually saved. The wizard renders as a centered, capped-width column with a pinned footer and vertically-stacked fields, and its stepper pills hold a constant width regardless of visited/current state. The app detail page shows an approximate total run duration next to the run/edit actions, computed from the app's own load stages and resource-tier count. Starting a new app from scratch begins with real, lightly-commented example manifest/k6-script content instead of blank textareas, and the Manifest/Script steps use a real syntax-highlighting code editor (CodeMirror) instead of a plain textarea. No backend or API-contract changes.
