@@ -26,8 +26,65 @@ export const emptyApp: AppDetail = {
   container: "",
   resources: { memory: [], cpu: [] },
   load: { vus: 10, stages: [{ duration: "30s", target: 10 }] },
-  manifestContent: "",
-  scriptContent: "",
+  manifestContent: `apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: minha-app
+  labels:
+    app: minha-app
+spec:
+  replicas: 1
+  # Recreate (em vez do padrão RollingUpdate) garante que só existe 1 pod
+  # por vez - importante porque o perftest troca os recursos (memória/cpu)
+  # entre cada combinação testada.
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: minha-app
+  template:
+    metadata:
+      labels:
+        app: minha-app
+    spec:
+      containers:
+        - name: minha-app
+          image: minha-imagem:latest
+          ports:
+            - containerPort: 80
+          resources:
+            # requests e limits iguais: essa é a combinação que o perftest
+            # sobrescreve a cada teste da matriz de recursos.
+            requests:
+              cpu: 250m
+              memory: 128Mi
+            limits:
+              cpu: 250m
+              memory: 128Mi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: minha-app
+spec:
+  selector:
+    app: minha-app
+  ports:
+    - port: 80
+      targetPort: 80
+`,
+  scriptContent: `import http from 'k6/http';
+import { check, sleep } from 'k6';
+
+// Troque pela URL do Service definido no manifest acima (nome do Service + porta)
+const BASE_URL = 'http://minha-app:80';
+
+export default function () {
+  const res = http.get(\`\${BASE_URL}/\`);
+  check(res, { 'respondeu 200': (r) => r.status === 200 });
+  sleep(1);
+}
+`,
 };
 
 export function validateApp(v: AppDetail): Record<string, string> {
