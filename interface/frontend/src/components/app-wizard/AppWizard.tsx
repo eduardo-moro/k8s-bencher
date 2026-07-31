@@ -188,7 +188,7 @@ export function AppWizard({
     .concat({ key: "revisao" as StepKey, label: "Revisão" });
 
   return (
-    <div className="grid gap-5">
+    <div className="mx-auto grid max-w-3xl gap-5 pb-28">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <StepIndicator steps={stepperSteps} current={step} visited={visited} onSelect={setStep} />
         <button
@@ -238,7 +238,7 @@ export function AppWizard({
       </Card>
 
       {step !== "inicio" && step !== "revisao" && (
-        <div className="flex items-center justify-between">
+        <div className="sticky bottom-0 z-30 flex items-center justify-between gap-3 border-t border-border bg-background/95 px-4 py-4 backdrop-blur">
           <div>
             {!isFirst && (
               <Button type="button" variant="ghost" onClick={goBack}>

@@ -12,7 +12,7 @@ export function StepStart({
   loadingExample: boolean;
 }) {
   return (
-    <div className="grid gap-4 sm:grid-cols-2">
+    <div className="grid gap-4">
       <Card
         className="cursor-pointer transition-colors hover:border-primary"
         onClick={onPickBlank}

@@ -17,7 +17,7 @@ export function StepIdentity({
   const set = (patch: Partial<AppDetail>) => onChange({ ...value, ...patch });
 
   return (
-    <div className="grid gap-4 sm:grid-cols-2">
+    <div className="grid gap-4">
       <div>
         <Label htmlFor="name">Nome do app</Label>
         <Input

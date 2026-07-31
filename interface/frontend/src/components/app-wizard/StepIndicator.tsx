@@ -33,7 +33,9 @@ export function StepIndicator({
                     : "border-border text-muted-foreground hover:bg-muted",
               )}
             >
-              {isVisited && !isCurrent && <Check className="size-3" />}
+              <span className="inline-flex size-3 shrink-0 items-center justify-center">
+                {isVisited && !isCurrent && <Check className="size-3" />}
+              </span>
               {i + 1}. {step.label}
             </button>
           </li>

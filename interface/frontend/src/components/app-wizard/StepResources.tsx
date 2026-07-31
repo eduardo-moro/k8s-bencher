@@ -15,7 +15,7 @@ export function StepResources({
   const set = (patch: Partial<AppDetail>) => onChange({ ...value, ...patch });
 
   return (
-    <div className="grid gap-4 sm:grid-cols-2">
+    <div className="grid gap-4">
       <div>
         <Label>Níveis de memória</Label>
         <div className="mt-1.5">
@@ -40,7 +40,7 @@ export function StepResources({
         </div>
         <FieldError message={errors.cpu} />
       </div>
-      <p className="text-xs text-muted-foreground sm:col-span-2">
+      <p className="text-xs text-muted-foreground">
         A execução varre todas as combinações de memória × CPU:{" "}
         <span className="font-mono text-foreground">
           {value.resources.memory.length * value.resources.cpu.length}
