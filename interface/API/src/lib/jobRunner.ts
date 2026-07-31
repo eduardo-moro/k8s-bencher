@@ -34,23 +34,33 @@ export class JobRunner {
   private pollIntervalMs: number;
 
   constructor(
-    private repoRoot: string,
+    private dataRoot: string,
+    engineRoot?: string,
     options?: {
       buildRunCommand?: (configRelPath: string) => CommandSpec;
       buildTeardownCommand?: () => CommandSpec;
       pollIntervalMs?: number;
     }
   ) {
-    this.configFiles = new ConfigFiles(repoRoot);
+    const resolvedEngineRoot = engineRoot ?? dataRoot;
+    this.configFiles = new ConfigFiles(dataRoot, resolvedEngineRoot);
     this.buildRunCommand =
       options?.buildRunCommand ??
       ((configRelPath: string) => ({
         command: 'pwsh',
-        args: ['-File', path.join(repoRoot, 'perftest.ps1'), '-Full', '-Config', path.join(repoRoot, configRelPath)],
+        args: [
+          '-File',
+          path.join(resolvedEngineRoot, 'perftest.ps1'),
+          '-Full',
+          '-Config',
+          path.join(dataRoot, configRelPath),
+          '-DataRoot',
+          dataRoot,
+        ],
       }));
     this.buildTeardownCommand =
       options?.buildTeardownCommand ??
-      (() => ({ command: 'pwsh', args: ['-File', path.join(repoRoot, 'perftest.ps1'), '-Teardown'] }));
+      (() => ({ command: 'pwsh', args: ['-File', path.join(resolvedEngineRoot, 'perftest.ps1'), '-Teardown'] }));
     this.pollIntervalMs = options?.pollIntervalMs ?? DEFAULT_POLL_INTERVAL_MS;
   }
 
@@ -77,7 +87,7 @@ export class JobRunner {
     };
     this.currentJob = job;
 
-    const child = spawn(command, args, { cwd: this.repoRoot });
+    const child = spawn(command, args, { cwd: this.dataRoot });
     this.currentProcess = child;
     job.status = 'running';
 
@@ -122,7 +132,7 @@ export class JobRunner {
   }
 
   private async findNewOutputDir(prefix: string, afterMs: number): Promise<string | undefined> {
-    const outputRoot = path.join(this.repoRoot, 'output');
+    const outputRoot = path.join(this.dataRoot, 'output');
     let entries: string[];
     try {
       entries = await fs.readdir(outputRoot);
@@ -148,7 +158,7 @@ export class JobRunner {
 
     const { command, args } = this.buildTeardownCommand();
     await new Promise<void>((resolve) => {
-      const teardown = spawn(command, args, { cwd: this.repoRoot });
+      const teardown = spawn(command, args, { cwd: this.dataRoot });
       teardown.on('exit', () => resolve());
       teardown.on('error', () => resolve());
     });

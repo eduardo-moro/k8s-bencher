@@ -48,7 +48,7 @@ afterEach(async () => {
 });
 
 function buildTestApp(exitCode = 0): { app: FastifyInstance; jobRunner: JobRunner } {
-  const jobRunner = new JobRunner(repoRoot, {
+  const jobRunner = new JobRunner(repoRoot, repoRoot, {
     pollIntervalMs: 50,
     buildRunCommand: () => ({
       command: process.execPath,

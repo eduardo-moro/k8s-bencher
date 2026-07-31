@@ -2,8 +2,24 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { promises as fs } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { EventEmitter } from 'node:events';
+import { spawn } from 'node:child_process';
+import type { ChildProcess } from 'node:child_process';
 import { JobRunner } from './jobRunner.js';
 import { ConflictError } from './errors.js';
+
+// node:child_process's ESM named exports are non-configurable (verified: Node
+// throws "Cannot redefine property: spawn" from Object.defineProperty), so
+// vi.spyOn on the live module namespace can never work here regardless of
+// jobRunner.ts's implementation. vi.mock replaces the module in the registry
+// instead of mutating the real object, sidestepping that restriction. Must be
+// declared at module scope (hoisted by vitest) since jobRunner.ts's own
+// `import { spawn } from 'node:child_process'` binds at that module's load
+// time, before any in-test vi.doMock could take effect.
+vi.mock('node:child_process', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('node:child_process')>();
+  return { ...actual, spawn: vi.fn(actual.spawn) };
+});
 
 let repoRoot: string;
 let fixtureScriptPath: string;
@@ -52,7 +68,7 @@ afterEach(async () => {
 });
 
 function makeRunner(exitCode = 0) {
-  return new JobRunner(repoRoot, {
+  return new JobRunner(repoRoot, repoRoot, {
     pollIntervalMs: 50,
     buildRunCommand: () => ({
       command: process.execPath,
@@ -102,8 +118,39 @@ describe('JobRunner', () => {
     expect(runner.getCurrentJob()).toBeNull();
   });
 
+  it('default buildRunCommand points at engineRoot/perftest.ps1 and passes -DataRoot dataRoot', async () => {
+    const engineRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'perftest-api-jobrunner-engine-'));
+    const runner = new JobRunner(repoRoot, engineRoot, { pollIntervalMs: 50 });
+
+    const expectedPerftestPath = path.join(engineRoot, 'perftest.ps1');
+    const expectedConfigPath = path.join(repoRoot, 'configs/testapp.yaml');
+
+    // startRun will fail fast (no real pwsh needed to fail) once it tries to
+    // spawn a literal 'pwsh' - what matters is the args array shape it built
+    // before spawning, so fake a minimal ChildProcess-shaped EventEmitter for
+    // this one call rather than letting the real spawn run (spawn is the
+    // module-mocked vi.fn() declared at the top of this file).
+    const spawnMock = vi.mocked(spawn);
+    spawnMock.mockImplementationOnce((..._args: unknown[]) => {
+      const fake = new EventEmitter() as unknown as ChildProcess;
+      (fake as unknown as { stdout: EventEmitter }).stdout = new EventEmitter();
+      (fake as unknown as { stderr: EventEmitter }).stderr = new EventEmitter();
+      return fake;
+    });
+
+    await runner.startRun('testapp');
+
+    expect(spawnMock).toHaveBeenCalledWith(
+      'pwsh',
+      ['-File', expectedPerftestPath, '-Full', '-Config', expectedConfigPath, '-DataRoot', repoRoot],
+      { cwd: repoRoot }
+    );
+
+    await fs.rm(engineRoot, { recursive: true, force: true });
+  });
+
   it('cancelCurrentJob kills the process and clears the slot', async () => {
-    const runner = new JobRunner(repoRoot, {
+    const runner = new JobRunner(repoRoot, repoRoot, {
       pollIntervalMs: 50,
       buildRunCommand: () => ({
         command: process.execPath,
@@ -152,7 +199,7 @@ describe('JobRunner', () => {
 
     try {
       let callCount = 0;
-      const runner = new JobRunner(repoRoot, {
+      const runner = new JobRunner(repoRoot, repoRoot, {
         pollIntervalMs: 200, // generous: long enough that neither job's own tick fires within our engineered window
         buildRunCommand: () => {
           callCount++;
