@@ -1814,7 +1814,7 @@ extraResources:
     to: api/node_modules
   - from: ../API/package.json
     to: api/package.json
-  - from: ../frontend/dist
+  - from: ../frontend/dist/client
     to: engine/frontend-dist
 win:
   target: nsis
@@ -1823,6 +1823,8 @@ nsis:
   perMachine: false
   allowToChangeInstallationDirectory: true
 ```
+
+Note the source path is `../frontend/dist/client`, not `../frontend/dist` — Task 7's `build:electron` produces its static SPA output at `dist/client` (confirmed by that task's review, which ran the real build and inspected the output directly: `dist/client/index.html` + hashed assets), with a `dist/server/` sibling byproduct directory (an SSR-only `server.js` and chunks, a leftover of the underlying Nitro build pipeline) that must NOT be copied — pointing this mapping at plain `dist` would ship that extraneous/wrong server tree inside the installer and `server.ts`'s static-file root would resolve one directory level too high to find `index.html`.
 
 Notes on the two path assumptions this config makes, both matching Task 12's `main.ts` in packaged mode:
 - `engineRoot` = `process.resourcesPath/engine` → this config places `perftest.ps1`, `modules/`, `manifests/`, `templates/`, and (critically) `frontend-dist/` all directly under `resources/engine/`, matching `server.ts`'s expectation (Task 5) that `frontend-dist` sits next to the engine files it resolves `engineRoot`-relative paths against.
