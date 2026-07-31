@@ -2255,12 +2255,150 @@ git commit -m "Add estimated run duration next to Iniciar execucao"
 
 ---
 
-### Task 16: Final verification pass
+### Task 16: Starter manifest/k6 script content for the blank "começar do zero" flow
 
-**Files:** none created/modified — this task only verifies Tasks 1-15's combined behavior against the real API.
+Added mid-plan per explicit user request: the "começar do zero" path currently gives a blank textarea for both Manifest and Script do k6, which is a rough starting point for a junior developer with no example to work from. This task gives `emptyApp` real starter content instead of empty strings, with only the comments a newcomer genuinely needs (why `Recreate`, why requests/limits match, what to change to point the k6 script at their own app) — not a line-by-line tutorial.
+
+**Files:**
+- Modify: `interface/frontend/src/components/app-wizard/AppWizard.tsx`
 
 **Interfaces:**
-- Consumes: everything from Tasks 1-15.
+- Consumes: nothing new.
+- Produces: nothing new — `emptyApp`'s exported shape/type is unchanged, only its `manifestContent`/`scriptContent` values change from `""` to real starter text.
+
+- [ ] **Step 1: Replace the `emptyApp` block**
+
+The `scriptContent` value below embeds a k6 script that itself uses a template literal (`` `${BASE_URL}/` ``) inside this file's own outer template literal — the inner backticks and `$` are backslash-escaped (`` \` `` and `\$`) so they appear as literal characters in the resulting string rather than being interpreted by TypeScript. Copy this exactly; a mismatched escape will fail `tsc --noEmit` immediately (self-checking), but visually double-check the final file reads as plain, unescaped k6 JS before committing (Step 3 below has you cat the relevant lines for exactly this reason).
+
+Replace:
+
+```tsx
+export const emptyApp: AppDetail = {
+  name: "",
+  container: "",
+  resources: { memory: [], cpu: [] },
+  load: { vus: 10, stages: [{ duration: "30s", target: 10 }] },
+  manifestContent: "",
+  scriptContent: "",
+};
+```
+
+with:
+
+```tsx
+export const emptyApp: AppDetail = {
+  name: "",
+  container: "",
+  resources: { memory: [], cpu: [] },
+  load: { vus: 10, stages: [{ duration: "30s", target: 10 }] },
+  manifestContent: `apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: minha-app
+  labels:
+    app: minha-app
+spec:
+  replicas: 1
+  # Recreate (em vez do padrão RollingUpdate) garante que só existe 1 pod
+  # por vez - importante porque o perftest troca os recursos (memória/cpu)
+  # entre cada combinação testada.
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: minha-app
+  template:
+    metadata:
+      labels:
+        app: minha-app
+    spec:
+      containers:
+        - name: minha-app
+          image: minha-imagem:latest
+          ports:
+            - containerPort: 80
+          resources:
+            # requests e limits iguais: essa é a combinação que o perftest
+            # sobrescreve a cada teste da matriz de recursos.
+            requests:
+              cpu: 250m
+              memory: 128Mi
+            limits:
+              cpu: 250m
+              memory: 128Mi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: minha-app
+spec:
+  selector:
+    app: minha-app
+  ports:
+    - port: 80
+      targetPort: 80
+`,
+  scriptContent: `import http from 'k6/http';
+import { check, sleep } from 'k6';
+
+// Troque pela URL do Service definido no manifest acima (nome do Service + porta)
+const BASE_URL = 'http://minha-app:80';
+
+export default function () {
+  const res = http.get(\`\${BASE_URL}/\`);
+  check(res, { 'respondeu 200': (r) => r.status === 200 });
+  sleep(1);
+}
+`,
+};
+```
+
+- [ ] **Step 2: Typecheck**
+
+```bash
+cd interface/frontend
+npx tsc --noEmit
+```
+Expected: no output. If this fails on the `scriptContent` line specifically, the backtick/`$` escaping above was altered — restore it exactly as given, character for character.
+
+- [ ] **Step 3: Visually confirm the embedded k6 script escaped correctly**
+
+```bash
+grep -n "BASE_URL\|http.get" interface/frontend/src/components/app-wizard/AppWizard.tsx
+```
+Expected output includes a line that reads literally `  const res = http.get(\`${BASE_URL}/\`);` (i.e. the *source file* shows the escaped form — that's correct, since this line is TypeScript source containing an escaped nested template literal, not the runtime string value). If instead you see doubled backslashes, missing backticks, or `undefined` anywhere near `BASE_URL`, the escaping was broken — fix it to match Step 1 exactly, don't attempt a different escaping scheme.
+
+- [ ] **Step 4: Live-verify the blank-start flow actually shows this content**
+
+```bash
+cd interface/frontend
+npm run dev > /tmp-frontend-dev.log 2>&1 &
+sleep 6
+grep -oE ':[0-9]{4}' /tmp-frontend-dev.log | head -1
+```
+Note the port, then:
+
+```bash
+curl -s "http://localhost:<PORT>/apps/new?passo=manifest" | grep -o "kind: Deployment"
+curl -s "http://localhost:<PORT>/apps/new?passo=script" | grep -o "BASE_URL"
+```
+Expected: both print a match. Then stop the server the same way as earlier live-verification steps (`netstat`/`taskkill` on the noted port).
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add interface/frontend/src/components/app-wizard/AppWizard.tsx
+git commit -m "Give the blank start flow real starter manifest/k6 script content"
+```
+
+---
+
+### Task 17: Final verification pass
+
+**Files:** none created/modified — this task only verifies Tasks 1-16's combined behavior against the real API.
+
+**Interfaces:**
+- Consumes: everything from Tasks 1-16.
 
 - [ ] **Step 1: Full typecheck**
 
@@ -2302,6 +2440,7 @@ Note the ports printed for API (3001) and frontend (Vite's chosen port), then in
 9. While in the wizard (any create/edit flow), resize the browser window shorter and scroll a step with long content (e.g. Manifest) — confirm the Voltar/Salvar e sair/Próximo row stays pinned to the bottom of the viewport instead of scrolling away, and the whole wizard column reads as a centered, capped-width block rather than spanning the full page. Confirm Identidade, Recursos, and the Início choice cards stack their fields vertically (no side-by-side columns).
 10. Click through several steps via the top stepper (not just Próximo/Voltar) and watch a given pill as it goes from not-visited to current to visited — confirm its width doesn't visibly shift when the checkmark appears/disappears.
 11. On an app detail page, confirm a "tempo estimado: ~Xmin" (or "~Xs") line appears next to the Editar/Iniciar execução buttons, and that it changes if you edit the app's stages or resource tiers to be larger/smaller.
+12. Click **Novo app** → **Começar do zero** → advance to Manifest and Script — confirm both already show real starter YAML/JS (not blank textareas), with the handful of Portuguese comments explaining `Recreate`, the matching requests/limits, and where to point `BASE_URL`.
 
 Expected: every step above behaves as described, entirely in Portuguese except backend-sourced error text (per Global Constraints) and technical loanwords (app/container/cluster/manifest/script).
 
@@ -2309,10 +2448,10 @@ Expected: every step above behaves as described, entirely in Portuguese except b
 
 Press Ctrl+C in the `make interface` terminal (the `trap 'kill 0'` in the Makefile stops both the API and frontend dev servers together).
 
-- [ ] **Step 5: No commit needed** — this task is validation only, nothing to add to git beyond what Tasks 1-15 already committed.
+- [ ] **Step 5: No commit needed** — this task is validation only, nothing to add to git beyond what Tasks 1-16 already committed.
 
 ---
 
 ## Post-plan state
 
-`interface/frontend/` is entirely in Brazilian Portuguese, and creating or editing an app's config is a guided multi-step wizard (Início → Identidade → Recursos → Carga → Manifest → Script → Revisão) instead of one long page — with free navigation between steps, a persistent "Salvar e sair" escape hatch that validates and jumps to the first problem step, and a review screen before anything is actually saved. The wizard renders as a centered, capped-width column with a pinned footer and vertically-stacked fields, and its stepper pills hold a constant width regardless of visited/current state. The app detail page shows an approximate total run duration next to the run/edit actions, computed from the app's own load stages and resource-tier count. No backend or API-contract changes.
+`interface/frontend/` is entirely in Brazilian Portuguese, and creating or editing an app's config is a guided multi-step wizard (Início → Identidade → Recursos → Carga → Manifest → Script → Revisão) instead of one long page — with free navigation between steps, a persistent "Salvar e sair" escape hatch that validates and jumps to the first problem step, and a review screen before anything is actually saved. The wizard renders as a centered, capped-width column with a pinned footer and vertically-stacked fields, and its stepper pills hold a constant width regardless of visited/current state. The app detail page shows an approximate total run duration next to the run/edit actions, computed from the app's own load stages and resource-tier count. Starting a new app from scratch begins with real, lightly-commented example manifest/k6-script content instead of blank textareas. No backend or API-contract changes.
