@@ -59,14 +59,18 @@ async function fileExists(filePath: string): Promise<boolean> {
 }
 
 export class ConfigFiles {
-  constructor(private repoRoot: string) {}
+  private engineRoot: string;
+
+  constructor(private dataRoot: string, engineRoot?: string) {
+    this.engineRoot = engineRoot ?? dataRoot;
+  }
 
   private configPath(name: string): string {
-    return path.join(this.repoRoot, 'configs', `${name}.yaml`);
+    return path.join(this.dataRoot, 'configs', `${name}.yaml`);
   }
 
   async listApps(): Promise<AppSummary[]> {
-    const configsDir = path.join(this.repoRoot, 'configs');
+    const configsDir = path.join(this.dataRoot, 'configs');
     let entries: string[];
     try {
       entries = await fs.readdir(configsDir);
@@ -95,8 +99,8 @@ export class ConfigFiles {
 
     const raw = await fs.readFile(configFile, 'utf8');
     const parsed = YAML.parse(raw) as RawConfigYaml;
-    const manifestContent = await fs.readFile(path.join(this.repoRoot, parsed.manifest), 'utf8');
-    const scriptContent = await fs.readFile(path.join(this.repoRoot, parsed.script), 'utf8');
+    const manifestContent = await fs.readFile(path.join(this.dataRoot, parsed.manifest), 'utf8');
+    const scriptContent = await fs.readFile(path.join(this.dataRoot, parsed.script), 'utf8');
 
     return {
       name: parsed.name,
@@ -126,12 +130,12 @@ export class ConfigFiles {
       load: detail.load,
     };
 
-    await fs.mkdir(path.join(this.repoRoot, 'manifests'), { recursive: true });
-    await fs.mkdir(path.join(this.repoRoot, 'loadtest'), { recursive: true });
-    await fs.mkdir(path.join(this.repoRoot, 'configs'), { recursive: true });
+    await fs.mkdir(path.join(this.dataRoot, 'manifests'), { recursive: true });
+    await fs.mkdir(path.join(this.dataRoot, 'loadtest'), { recursive: true });
+    await fs.mkdir(path.join(this.dataRoot, 'configs'), { recursive: true });
 
-    await atomicWrite(path.join(this.repoRoot, manifestRelPath), detail.manifestContent);
-    await atomicWrite(path.join(this.repoRoot, scriptRelPath), detail.scriptContent);
+    await atomicWrite(path.join(this.dataRoot, manifestRelPath), detail.manifestContent);
+    await atomicWrite(path.join(this.dataRoot, scriptRelPath), detail.scriptContent);
     await atomicWrite(configFile, YAML.stringify(rawConfig));
   }
 
@@ -145,10 +149,10 @@ export class ConfigFiles {
     const parsed = YAML.parse(raw) as RawConfigYaml;
 
     if (partial.manifestContent !== undefined) {
-      await atomicWrite(path.join(this.repoRoot, parsed.manifest), partial.manifestContent);
+      await atomicWrite(path.join(this.dataRoot, parsed.manifest), partial.manifestContent);
     }
     if (partial.scriptContent !== undefined) {
-      await atomicWrite(path.join(this.repoRoot, parsed.script), partial.scriptContent);
+      await atomicWrite(path.join(this.dataRoot, parsed.script), partial.scriptContent);
     }
 
     const updatedRaw: RawConfigYaml = {
@@ -171,13 +175,13 @@ export class ConfigFiles {
     const raw = await fs.readFile(configFile, 'utf8');
     const parsed = YAML.parse(raw) as RawConfigYaml;
 
-    await fs.rm(path.join(this.repoRoot, parsed.manifest), { force: true });
-    await fs.rm(path.join(this.repoRoot, parsed.script), { force: true });
+    await fs.rm(path.join(this.dataRoot, parsed.manifest), { force: true });
+    await fs.rm(path.join(this.dataRoot, parsed.script), { force: true });
     await fs.rm(configFile, { force: true });
   }
 
   async getTemplateExample(): Promise<AppDetail> {
-    const templatesDir = path.join(this.repoRoot, 'templates');
+    const templatesDir = path.join(this.engineRoot, 'templates');
     const raw = await fs.readFile(path.join(templatesDir, 'config.example.yaml'), 'utf8');
     const parsed = YAML.parse(raw) as RawConfigYaml;
     const manifestContent = await fs.readFile(path.join(templatesDir, 'manifest.example.yaml'), 'utf8');

@@ -111,4 +111,21 @@ describe('ConfigFiles', () => {
     expect(template.manifestContent).toBe('kind: Deployment\n');
     expect(template.scriptContent).toBe('export default function(){}\n');
   });
+
+  it('reads templates from a separate engineRoot when provided', async () => {
+    const engineRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'perftest-api-test-engine-'));
+    await fs.mkdir(path.join(engineRoot, 'templates'), { recursive: true });
+    await fs.writeFile(
+      path.join(engineRoot, 'templates/config.example.yaml'),
+      'name: httpbin-example\nmanifest: manifests/httpbin.yaml\ncontainer: httpbin\nscript: loadtest/httpbin.js\nresources:\n  memory: [128Mi]\n  cpu: [100m]\nload:\n  vus: 15\n  stages:\n    - {duration: 10s, target: 15}\n'
+    );
+    await fs.writeFile(path.join(engineRoot, 'templates/manifest.example.yaml'), 'kind: Deployment\n');
+    await fs.writeFile(path.join(engineRoot, 'templates/loadtest.example.js'), 'export default function(){}\n');
+
+    const splitConfigFiles = new ConfigFiles(repoRoot, engineRoot);
+    const template = await splitConfigFiles.getTemplateExample();
+    expect(template.name).toBe('httpbin-example');
+
+    await fs.rm(engineRoot, { recursive: true, force: true });
+  });
 });
