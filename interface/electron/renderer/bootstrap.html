@@ -1,0 +1,70 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <title>k8s-perftest — configuração inicial</title>
+  <style>
+    body {
+      font-family: 'Segoe UI', system-ui, sans-serif;
+      background: #0f1115;
+      color: #e6e6e6;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      height: 100vh;
+      margin: 0;
+    }
+    .card {
+      max-width: 32rem;
+      padding: 2rem;
+      border: 1px solid #2a2d36;
+      border-radius: 0.75rem;
+      background: #171a21;
+    }
+    h1 { font-size: 1.1rem; margin: 0 0 0.5rem; }
+    p { color: #9aa0ab; font-size: 0.85rem; line-height: 1.5; }
+    button {
+      margin-top: 1rem;
+      padding: 0.5rem 1rem;
+      border-radius: 0.4rem;
+      border: 1px solid #3a3f4b;
+      background: #232733;
+      color: #e6e6e6;
+      cursor: pointer;
+      font-size: 0.85rem;
+    }
+    button:hover { background: #2c313f; }
+    button:disabled { opacity: 0.5; cursor: default; }
+    #path { font-family: monospace; font-size: 0.8rem; margin-top: 0.75rem; word-break: break-all; color: #7fd88f; }
+    pre {
+      background: #0b0d11;
+      border: 1px solid #2a2d36;
+      border-radius: 0.4rem;
+      padding: 0.75rem;
+      font-size: 0.75rem;
+      max-height: 12rem;
+      overflow: auto;
+      white-space: pre-wrap;
+    }
+    .hidden { display: none; }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <div id="step-folder">
+      <h1>Onde salvar seus dados?</h1>
+      <p>Escolha a pasta onde os apps configurados, manifests, scripts do k6 e resultados de execuções vão ficar salvos.</p>
+      <button id="pick-btn">Escolher pasta</button>
+      <div id="path"></div>
+      <button id="continue-btn" class="hidden">Continuar</button>
+    </div>
+    <div id="step-check" class="hidden">
+      <h1>Verificando pré-requisitos…</h1>
+      <p>kind, kubectl, k6, Docker Desktop e o módulo powershell-yaml precisam estar instalados.</p>
+      <pre id="check-output"></pre>
+      <button id="retry-btn" class="hidden">Verificar novamente</button>
+    </div>
+  </div>
+  <script src="bootstrap.js"></script>
+</body>
+</html>
