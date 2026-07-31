@@ -1,0 +1,16 @@
+{
+  "name": "perftest-electron",
+  "version": "0.1.0",
+  "private": true,
+  "main": "dist/main.js",
+  "scripts": {
+    "build": "tsc",
+    "start": "npm run build && electron ."
+  },
+  "devDependencies": {
+    "@types/node": "^20.14.15",
+    "electron": "^31.3.1",
+    "electron-builder": "^24.13.3",
+    "typescript": "^5.5.4"
+  }
+}
