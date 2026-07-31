@@ -4,7 +4,7 @@ Build a frontend for "perftest-api" — a local dev tool that right-sizes a Kube
 
 ## API contract
 
-Base URL: read from an env var VITE_API_BASE_URL, defaulting to http://localhost:3001. No auth headers needed anywhere.
+Base URL: read from an env var VITE_API_BASE_URL, defaulting to http://localhost:8026. No auth headers needed anywhere.
 
 ### Apps (config CRUD)
 

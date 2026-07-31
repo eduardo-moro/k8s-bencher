@@ -18,7 +18,7 @@ help:
 	@printf "\tmake $(CYAN)run CONFIG=caminho.yaml$(RESET) .... faz o deploy + roda a matriz de recursos para uma config\n"
 	@printf "\tmake $(CYAN)all CONFIG=caminho.yaml$(RESET) .... cluster + run, cluster permanece ativo\n"
 	@printf "\tmake $(CYAN)full CONFIG=caminho.yaml$(RESET) ... cluster + run + teardown\n"
-	@printf "\tmake $(CYAN)interface$(RESET) ................. sobe a API (porta 3001) e o frontend (porta escolhida pelo Vite) juntos\n"
+	@printf "\tmake $(CYAN)interface$(RESET) ................. sobe a API (porta 8026) e o frontend (porta escolhida pelo Vite) juntos\n"
 	@printf "\n"
 	@printf "$(GRAY)\t// Rode $(CYAN)run/all/full$(GRAY) sem CONFIG e ele demonstra o exemplo httpbin ja incluso\n"
 	@printf "\t(copiado de $(CYAN)templates/$(GRAY) para $(CYAN)manifests/$(GRAY), $(CYAN)loadtest/$(GRAY) e $(CYAN)configs/$(RESET) no primeiro uso).$(RESET)\n"
@@ -72,7 +72,7 @@ interface:
 		printf "$(YELLOW)Instalando dependencias do frontend...$(RESET)\n"; \
 		(cd interface/frontend && npm install); \
 	fi
-	@printf "$(CYAN)Subindo API ($(CYAN)http://localhost:3001$(RESET)$(CYAN)) e frontend - veja o link exato no log do Vite abaixo...$(RESET)\n"
+	@printf "$(CYAN)Subindo API ($(CYAN)http://localhost:8026$(RESET)$(CYAN)) e frontend - veja o link exato no log do Vite abaixo...$(RESET)\n"
 	@trap 'kill 0' EXIT INT TERM; \
 	(cd interface/API && npm run dev) & \
 	(cd interface/frontend && npm run dev) & \

@@ -2499,7 +2499,7 @@ Expected: either no matches, or only matches that are legitimate (JS/CSS class n
 cd ../../..
 make interface
 ```
-Note the ports printed for API (3001) and frontend (Vite's chosen port), then in a browser:
+Note the ports printed for API (8026, per `interface/API/src/server.ts`'s current default) and frontend (Vite's chosen port), then in a browser:
 
 1. Go to `/` — confirm the Dashboard, header tagline, and env-status pill are in Portuguese.
 2. Click **Novo app** → **Usar o exemplo httpbin** — confirm it loads httpbin's fields and advances to Identidade.

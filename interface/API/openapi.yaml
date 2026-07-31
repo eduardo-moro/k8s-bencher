@@ -18,7 +18,7 @@ info:
     run is already in progress.
   version: "1.0.0"
 servers:
-  - url: http://localhost:3001
+  - url: http://localhost:8026
     description: Local dev server (default port; override with the PORT env var)
 
 tags:
