@@ -392,25 +392,20 @@ The existing `jobRunner.test.ts` always supplies a custom `buildRunCommand`/`bui
     const engineRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'perftest-api-jobrunner-engine-'));
     const runner = new JobRunner(repoRoot, engineRoot, { pollIntervalMs: 50 });
 
-    // Reach into the private buildRunCommand via the same constructor path
-    // startRun uses - call it the same way startRun would, but intercept
-    // by temporarily wrapping spawn is overkill here; instead assert on
-    // the command shape directly via a second runner built the same way
-    // startRun builds its command, using the class's own default.
     const expectedPerftestPath = path.join(engineRoot, 'perftest.ps1');
     const expectedConfigPath = path.join(repoRoot, 'configs/testapp.yaml');
 
     // startRun will fail fast (no real pwsh needed to fail) once it tries to
     // spawn a literal 'pwsh' - what matters is the args array shape it built
-    // before spawning, so spy on child_process.spawn.
+    // before spawning, so spy on child_process.spawn and fake a minimal
+    // ChildProcess-shaped EventEmitter rather than letting the real spawn run.
     const cp = await import('node:child_process');
-    const spawnSpy = vi.spyOn(cp, 'spawn').mockImplementation(((..._args: unknown[]) => {
-      const { EventEmitter } = require('node:events');
-      const fake = new EventEmitter() as unknown as ReturnType<typeof cp.spawn>;
+    const spawnSpy = vi.spyOn(cp, 'spawn').mockImplementation((..._args: unknown[]) => {
+      const fake = new EventEmitter() as unknown as ChildProcess;
       (fake as unknown as { stdout: EventEmitter }).stdout = new EventEmitter();
       (fake as unknown as { stderr: EventEmitter }).stderr = new EventEmitter();
       return fake;
-    }) as typeof cp.spawn);
+    });
 
     await runner.startRun('testapp');
 
@@ -425,7 +420,9 @@ The existing `jobRunner.test.ts` always supplies a custom `buildRunCommand`/`bui
   });
 ```
 
-Add `import { vi } from 'vitest';` to the top-level `vitest` import line in this file (currently `import { describe, it, expect, beforeEach, afterEach } from 'vitest';` — extend it to include `vi`).
+This test needs two additions to the file's existing top-of-file imports:
+- Extend the existing `import { describe, it, expect, beforeEach, afterEach } from 'vitest';` to also import `vi`.
+- Add `import { EventEmitter } from 'node:events';` and `import type { ChildProcess } from 'node:child_process';` as new top-level imports (both plain ESM imports — this project is `"type": "module"`, so `require()` is not available inside these test files; only `import` works).
 
 - [ ] **Step 2: Run tests to verify the new one fails**
 
