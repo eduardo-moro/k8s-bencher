@@ -7,7 +7,7 @@ YELLOW := \033[0;33m
 GRAY   := \033[0;37m
 RESET  := \033[0m
 
-.PHONY: help check cluster run teardown all full demo-setup interface
+.PHONY: help check cluster run teardown all full demo-setup interface electron-installer
 
 help:
 	@printf "\n\t$(CYAN)k8s-perftest$(RESET) -- Ferramenta de perfilamento de recursos para aplicacoes em kubernetes"
@@ -19,6 +19,7 @@ help:
 	@printf "\tmake $(CYAN)all CONFIG=caminho.yaml$(RESET) .... cluster + run, cluster permanece ativo\n"
 	@printf "\tmake $(CYAN)full CONFIG=caminho.yaml$(RESET) ... cluster + run + teardown\n"
 	@printf "\tmake $(CYAN)interface$(RESET) ................. sobe a API (porta 8026) e o frontend (porta escolhida pelo Vite) juntos\n"
+	@printf "\tmake $(CYAN)electron-installer$(RESET) ......... gera o instalador .exe do desktop app (Electron)\n"
 	@printf "\n"
 	@printf "$(GRAY)\t// Rode $(CYAN)run/all/full$(GRAY) sem CONFIG e ele demonstra o exemplo httpbin ja incluso\n"
 	@printf "\t(copiado de $(CYAN)templates/$(GRAY) para $(CYAN)manifests/$(GRAY), $(CYAN)loadtest/$(GRAY) e $(CYAN)configs/$(RESET) no primeiro uso).$(RESET)\n"
@@ -77,3 +78,15 @@ interface:
 	(cd interface/API && npm run dev) & \
 	(cd interface/frontend && npm run dev) & \
 	wait
+
+# Builds a single-file Windows installer: compiles the API, builds the
+# frontend as a static SPA (not the SSR dev build), then packages both
+# plus the PowerShell engine into one electron-builder NSIS .exe.
+electron-installer:
+	@printf "$(CYAN)Compilando a API...$(RESET)\n"
+	cd interface/API && npm run build
+	@printf "$(CYAN)Compilando o frontend (build estatico)...$(RESET)\n"
+	cd interface/frontend && npm run build:electron
+	@printf "$(CYAN)Empacotando o instalador Electron...$(RESET)\n"
+	cd interface/electron && npm run package
+	@printf "$(GREEN)Instalador pronto em interface/electron/release/$(RESET)\n"

@@ -1,0 +1,31 @@
+appId: com.k8s-perftest.desktop
+productName: k8s-perftest
+directories:
+  output: release
+files:
+  - dist/**/*
+  - renderer/**/*
+  - package.json
+extraResources:
+  - from: ../../perftest.ps1
+    to: engine/perftest.ps1
+  - from: ../../modules
+    to: engine/modules
+  - from: ../../manifests
+    to: engine/manifests
+  - from: ../../templates
+    to: engine/templates
+  - from: ../API/dist
+    to: api
+  - from: ../API/node_modules
+    to: api/node_modules
+  - from: ../API/package.json
+    to: api/package.json
+  - from: ../frontend/dist/client
+    to: engine/frontend-dist
+win:
+  target: nsis
+nsis:
+  oneClick: false
+  perMachine: false
+  allowToChangeInstallationDirectory: true
