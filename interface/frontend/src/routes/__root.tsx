@@ -7,12 +7,15 @@ import {
   HeadContent,
   Scripts,
 } from "@tanstack/react-router";
-import { useEffect, type ReactNode } from "react";
+import { Settings } from "lucide-react";
+import { useEffect, useState, type ReactNode } from "react";
 
 import appCss from "../styles.css?url";
 import { Toaster } from "@/components/ui/sonner";
 import { RunBanner } from "@/components/RunBanner";
 import { EnvStatus } from "@/components/EnvStatus";
+import { SettingsDialog } from "@/components/SettingsDialog";
+import { isElectron } from "@/lib/electron";
 import { reportLovableError } from "../lib/lovable-error-reporting";
 
 function NotFoundComponent() {
@@ -131,6 +134,7 @@ function RootShell({ children }: { children: ReactNode }) {
 
 function RootComponent() {
   const { queryClient } = Route.useRouteContext();
+  const [settingsOpen, setSettingsOpen] = useState(false);
 
   return (
     <QueryClientProvider client={queryClient}>
@@ -143,8 +147,21 @@ function RootComponent() {
                 ajuste fino de recursos k8s
               </span>
             </Link>
-            <div className="ml-auto">
+            <div className="ml-auto flex items-center gap-2">
               <EnvStatus />
+              {isElectron() && (
+                <>
+                  <button
+                    type="button"
+                    onClick={() => setSettingsOpen(true)}
+                    className="rounded p-1.5 text-muted-foreground hover:bg-muted hover:text-foreground"
+                    aria-label="Configurações"
+                  >
+                    <Settings className="size-4" />
+                  </button>
+                  <SettingsDialog open={settingsOpen} onOpenChange={setSettingsOpen} />
+                </>
+              )}
             </div>
           </div>
         </header>
