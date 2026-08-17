@@ -79,6 +79,14 @@ export class JobRunner {
     const configRelPath = `configs/${appName}.yaml`;
     const { command, args } = this.buildRunCommand(configRelPath);
 
+    // Snapshot before spawning, rather than comparing stat().birthtimeMs
+    // against spawnTime: birthtime is unreliable across filesystems -
+    // notably WSL2's DrvFS mount for Windows paths under /mnt/c, which can
+    // report 0/epoch instead of the real creation time. "Not in this
+    // snapshot" sidesteps filesystem-timestamp reliability entirely.
+    const outputRoot = path.join(this.dataRoot, 'output');
+    const preExisting = new Set(await fs.readdir(outputRoot).catch(() => [] as string[]));
+
     const job: JobState = {
       appName,
       status: 'starting',
@@ -98,7 +106,7 @@ export class JobRunner {
     child.stderr?.on('data', appendLog);
 
     const pollTimer = setInterval(() => {
-      void this.findNewOutputDir(outputPrefix, spawnTime).then((dir) => {
+      void this.findNewOutputDir(outputPrefix, preExisting).then((dir) => {
         if (dir) {
           job.outputDir = dir;
           if (this.outputPollTimer === pollTimer) {
@@ -119,6 +127,10 @@ export class JobRunner {
       if (this.currentProcess === child) {
         this.currentProcess = null;
       }
+      // run-meta.json (totalDurationSeconds) is written by perftest.ps1 itself
+      // (Write-PerftestRunMeta), not here - that survives an API dev-server
+      // restart mid-run and also covers CLI-triggered runs, neither of which
+      // this exit handler could guarantee.
     });
 
     return job;
@@ -131,7 +143,7 @@ export class JobRunner {
     }
   }
 
-  private async findNewOutputDir(prefix: string, afterMs: number): Promise<string | undefined> {
+  private async findNewOutputDir(prefix: string, preExisting: Set<string>): Promise<string | undefined> {
     const outputRoot = path.join(this.dataRoot, 'output');
     let entries: string[];
     try {
@@ -140,14 +152,7 @@ export class JobRunner {
       return undefined;
     }
 
-    for (const entry of entries) {
-      if (!entry.startsWith(`${prefix}-`)) continue;
-      const stat = await fs.stat(path.join(outputRoot, entry)).catch(() => null);
-      if (stat && stat.birthtimeMs >= afterMs) {
-        return entry;
-      }
-    }
-    return undefined;
+    return entries.find((entry) => entry.startsWith(`${prefix}-`) && !preExisting.has(entry));
   }
 
   async cancelCurrentJob(): Promise<void> {

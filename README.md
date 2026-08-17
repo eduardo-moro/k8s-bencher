@@ -23,6 +23,98 @@ por conta própria — a ferramenta não sobe nada além do serviço sendo testa
 Rode `make check` (ou `pwsh -File perftest.ps1 -Check`) para verificar se
 está tudo instalado e pronto antes de começar.
 
+### Rodando via WSL (recomendado em máquinas Windows corporativas)
+
+Em máquinas Windows com política de Controle de Aplicativo (AppLocker/WDAC)
+ativa, os binários nativos do Windows podem:
+- ser bloqueados pela política ("Uma política de Controle de Aplicativo
+  bloqueou este arquivo"), principalmente quando instalados via Chocolatey
+  portátil fora de `Program Files`;
+- esbarrar num bug conhecido do PowerShell no Windows
+  (`Program 'kind' failed to run: StandardOutputEncoding is only
+  supported when standard output is redirected`), que acontece quando o
+  `pwsh` roda sem um console real anexado — por exemplo, quando é disparado
+  por outro processo em segundo plano.
+
+O motor da ferramenta é só PowerShell 7 (`pwsh`) + binários padrão de
+Kubernetes/Docker/k6 — nenhum código aqui depende de caminho ou recurso
+específico do Windows. Rodando de dentro do WSL (um Linux de verdade) os
+dois problemas acima somem, sem precisar mudar nada no repositório:
+
+1. Tenha uma distro instalada (`wsl --install -d Ubuntu`, se ainda não tiver
+   nenhuma).
+2. Instale o PowerShell 7 dentro da distro:
+   https://learn.microsoft.com/powershell/scripting/install/install-ubuntu
+   (ou o pacote equivalente da sua distro).
+3. Instale `kind`, `kubectl` e `k6` como binários Linux normais dentro do
+   WSL — mesmos links da lista de pré-requisitos acima, baixando a versão
+   Linux de cada um.
+4. Docker: habilite a integração WSL do Docker Desktop para a sua distro
+   (Settings → Resources → WSL Integration). O `docker` dentro do WSL passa
+   a falar com o mesmo daemon do Docker Desktop, sem precisar instalar o
+   Docker Engine separadamente.
+5. **Instale Node.js dentro da distro também** (necessário para `make
+   interface`, que sobe a API/frontend). O jeito mais robusto — independe da
+   distro/gerenciador de pacotes (`apt`, `pacman`, `dnf`, etc.) — é extrair o
+   binário oficial direto em `/usr/local`, que já vem antes das entradas do
+   Windows no `PATH`:
+   (`latest-vN.x/` é o alias real do nodejs.org para "última versão da
+   linha N" — troque `22` pela LTS atual se já tiver mudado, veja
+   https://nodejs.org/en/about/previous-releases):
+   ```bash
+   cd /tmp
+   NODE_TARBALL=$(curl -fsSL https://nodejs.org/dist/latest-v22.x/ | grep -oE 'node-v[0-9.]+-linux-x64\.tar\.xz' | head -1)
+   curl -fsSLO "https://nodejs.org/dist/latest-v22.x/$NODE_TARBALL"
+   sudo tar -xf "$NODE_TARBALL" -C /usr/local --strip-components=1
+   ```
+   No fish, a atribuição de variável usa `set` em vez de `=`:
+   ```fish
+   cd /tmp
+   set NODE_TARBALL (curl -fsSL https://nodejs.org/dist/latest-v22.x/ | grep -oE "node-v[0-9.]+-linux-x64\.tar\.xz" | head -1)
+   curl -fsSLO "https://nodejs.org/dist/latest-v22.x/$NODE_TARBALL"
+   sudo tar -xf "$NODE_TARBALL" -C /usr/local --strip-components=1
+   ```
+   Se sua distro for baseada em Debian/Ubuntu, o pacote do NodeSource também
+   funciona (`curl -fsSL https://deb.nodesource.com/setup_lts.x | sudo -E
+   bash - && sudo apt-get install -y nodejs`). Evite o
+   [nvm](https://github.com/nvm-sh/nvm) a não ser que seu shell seja bash/zsh
+   — ele só se integra automaticamente via `~/.bashrc`/`~/.zshrc`; em fish ou
+   outro shell não-padrão, `node`/`npm` continuam resolvendo para os
+   binários do Windows via interop mesmo com o nvm instalado.
+6. Confirme que tudo resolve para binários Linux, não para os equivalentes
+   do Windows expostos via interop do WSL (por padrão o WSL anexa o `PATH`
+   do Windows ao do Linux — então um `pwsh`/`kind`/`node` "encontrado" pelo
+   shell pode silenciosamente ser o `.exe` do Windows, reproduzindo os
+   mesmos problemas que o WSL deveria evitar):
+   ```bash
+   which pwsh kind kubectl k6 node npm
+   ```
+   Cada linha deve apontar para um caminho Linux (`/usr/...`) — nunca
+   `/mnt/c/...`. Se `node`/`npm` continuarem apontando para o Windows depois
+   de instalados, o suspeito nº 1 é o shell não ter carregado o `PATH` novo
+   (abra um terminal do WSL novo, ou confira se o seu shell realmente lê o
+   rc file que o instalador tocou).
+7. Rode `make check` de dentro do WSL, na pasta do repo — acessível em
+   `/mnt/c/Users/<você>/source/k8s-perftest`, ou clone o repositório direto
+   no filesystem do Linux para I/O mais rápido.
+
+Depois disso, todos os comandos (`make cluster`, `make run`, `make full`,
+`make teardown`, `make interface`) funcionam iguais, só que de dentro do
+shell do WSL. O cluster `kind` sobe dentro do WSL2 normalmente, e as portas
+expostas (`30080` do app testado, `8026` da API) ficam acessíveis em
+`localhost` a partir do Windows — o WSL2 encaminha automaticamente.
+
+**Se `interface/API/node_modules` ou `interface/frontend/node_modules` já
+existirem** de uma execução anterior feita no Windows, apague-os antes do
+primeiro `make interface` dentro do WSL — `make interface` só roda `npm
+install` quando a pasta `node_modules` ainda não existe, e o Vite/esbuild/
+Rollup instalam binários nativos específicos do SO (os baixados no Windows
+não funcionam sob Linux):
+```bash
+rm -rf interface/API/node_modules interface/frontend/node_modules
+make interface
+```
+
 ## Início rápido (demo)
 
 Sem nenhuma configuração própria, `make full` já roda uma demonstração
@@ -51,6 +143,17 @@ cluster. Os resultados ficam em `output/httpbin-example-<timestamp>/`.
    label `app` do pod precisam ser todos iguais ao valor do campo
    `container` da config (veja abaixo). É assim que o `kubectl set
    resources` sabe em qual container ajustar memória/CPU a cada combinação.
+
+   Se sua aplicação é .NET rodando em versão anterior ao .NET Core 3.0 (onde
+   a detecção de limite de memória via cgroup é pouco confiável), adicione
+   uma env var `DOTNET_GCHeapHardLimit` ao container no manifesto (qualquer
+   valor hex serve como ponto de partida). O harness detecta essa env var
+   automaticamente e a mantém sincronizada com o limite de memória de cada
+   combinação testada, via `kubectl set env` — usando 80% do limite de
+   memória da combinação, não o valor cheio (o hard limit só cobre o heap
+   gerenciado, não o processo inteiro; sem essa margem o container ainda
+   pode ser OOM-killed por alocações fora do heap mesmo com o GC "dentro do
+   limite").
 3. Edite `loadtest/minha-app.js` — um script k6 de verdade. Ele mesmo define
    a URL de destino (ex.: `http://minha-app:8080`) e as requisições que
    simulam a carga; não existe um formato declarativo separado, o script é
@@ -101,6 +204,7 @@ load:
     - {duration: 20s, target: 15}
     - {duration: 120s, target: 15}
     - {duration: 10s, target: 0}
+sampleIntervalSeconds: 5              # opcional (padrão 5) - intervalo do amostrador de RAM/CPU/restarts
 ```
 
 ### Entendendo `load.stages`
@@ -140,7 +244,10 @@ ignorar esse campo.
 Cada execução cria uma pasta com:
 - `results.csv` — uma linha por combinação de memória/CPU testada
 - `k6-<mem>-<cpu>.json` — resumo bruto do k6 daquela combinação
-- `top-<mem>-<cpu>.log` — amostras de `kubectl top pod` durante o teste
+- `top-<mem>-<cpu>.log` — amostras timestamped de `kubectl top pod`
+  (uma a cada `sampleIntervalSeconds`, padrão 5s) durante o teste; a
+  interface web usa esse arquivo para os gráficos de RAM/CPU ao longo do
+  tempo
 
 ### Colunas do `results.csv`
 

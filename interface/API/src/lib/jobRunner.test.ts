@@ -93,6 +93,19 @@ describe('JobRunner', () => {
     expect(finalJob?.logTail).toContain('fixture running for testapp');
   });
 
+  it('does not mistake a pre-existing output folder for the new run\'s (birthtime is unreliable on some filesystems, e.g. WSL2 DrvFS)', async () => {
+    const staleDir = path.join(repoRoot, 'output', 'testapp-stale-from-a-previous-run');
+    await fs.mkdir(staleDir, { recursive: true });
+
+    const runner = makeRunner(0);
+    await runner.startRun('testapp');
+    await waitFor(() => runner.getCurrentJob()?.status === 'done');
+
+    const finalJob = runner.getCurrentJob();
+    expect(finalJob?.outputDir).toMatch(/^testapp-/);
+    expect(finalJob?.outputDir).not.toBe('testapp-stale-from-a-previous-run');
+  });
+
   it('transitions to failed when the process exits non-zero', async () => {
     const runner = makeRunner(1);
     await runner.startRun('testapp');

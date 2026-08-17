@@ -34,6 +34,8 @@ export interface JobState {
 export interface OutputEntry {
   folder: string;
   timestamp: string;
+  rowCount: number;
+  totalDurationSeconds?: number;
 }
 
 export interface ResultRow {
@@ -48,6 +50,37 @@ export interface ResultRow {
   http_reqs_total: number | null;
   oom_killed: boolean;
   restart_count: number;
+}
+
+export interface MemorySamplePoint {
+  timestampMs: number;
+  elapsedSeconds: number;
+  memoryMi: number;
+  cpuMillicores: number | null;
+}
+
+export interface MemorySeries {
+  tier: string;
+  memory: string;
+  cpu: string;
+  points: MemorySamplePoint[];
+}
+
+export interface RestartEvent {
+  timestampMs: number;
+  restartCount: number;
+  reason: string;
+}
+
+export interface ThroughputPoint {
+  elapsedSeconds: number;
+  requestsPerSecond: number;
+}
+
+export interface LogPage {
+  lines: string[];
+  hasMore: boolean;
+  startIndex: number;
 }
 
 export interface CheckResult {
@@ -92,6 +125,7 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   return JSON.parse(text) as T;
 }
 
+
 export const api = {
   check: () => request<CheckResult>("/check"),
   listApps: () => request<AppSummary[]>("/apps"),
@@ -115,8 +149,44 @@ export const api = {
     request<{ rows: ResultRow[] }>(
       `/apps/${encodeURIComponent(name)}/outputs/${encodeURIComponent(folder)}`,
     ),
+  outputMemory: (name: string, folder: string) =>
+    request<{ series: MemorySeries[] }>(
+      `/apps/${encodeURIComponent(name)}/outputs/${encodeURIComponent(folder)}/memory`,
+    ),
+  comboResourceSeries: (name: string, folder: string, memory: string, cpu: string) =>
+    request<{ points: MemorySamplePoint[] }>(
+      `/apps/${encodeURIComponent(name)}/outputs/${encodeURIComponent(folder)}/memory-series` +
+        `?memory=${encodeURIComponent(memory)}&cpu=${encodeURIComponent(cpu)}`,
+    ),
+  comboRestarts: (name: string, folder: string, memory: string, cpu: string) =>
+    request<{ events: RestartEvent[] }>(
+      `/apps/${encodeURIComponent(name)}/outputs/${encodeURIComponent(folder)}/restarts` +
+        `?memory=${encodeURIComponent(memory)}&cpu=${encodeURIComponent(cpu)}`,
+    ),
+  comboThroughput: (name: string, folder: string, memory: string, cpu: string) =>
+    request<{ points: ThroughputPoint[] }>(
+      `/apps/${encodeURIComponent(name)}/outputs/${encodeURIComponent(folder)}/throughput` +
+        `?memory=${encodeURIComponent(memory)}&cpu=${encodeURIComponent(cpu)}`,
+    ),
+  comboLogsPage: (
+    name: string,
+    folder: string,
+    memory: string,
+    cpu: string,
+    kind: "app" | "k6",
+    before: number | undefined,
+    limit: number,
+  ) =>
+    request<LogPage>(
+      `/apps/${encodeURIComponent(name)}/outputs/${encodeURIComponent(folder)}/logs` +
+        `?memory=${encodeURIComponent(memory)}&cpu=${encodeURIComponent(cpu)}&kind=${kind}` +
+        `&limit=${limit}` +
+        (before !== undefined ? `&before=${before}` : ""),
+    ),
   rawCsvUrl: (name: string, folder: string) =>
     `${API_BASE}/apps/${encodeURIComponent(name)}/outputs/${encodeURIComponent(folder)}/raw`,
+  prometheusUrl: (name: string, folder: string) =>
+    `${API_BASE}/apps/${encodeURIComponent(name)}/outputs/${encodeURIComponent(folder)}/prometheus`,
 };
 
 export function isActive(status?: JobStatus) {
