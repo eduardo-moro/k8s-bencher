@@ -1,0 +1,88 @@
+CONFIG ?= configs/example.yaml
+
+# Native-Windows counterpart to the default Makefile, which needs a POSIX
+# shell (`sh`/`bash`) to run - see that file's own comment for why. This one
+# forces cmd.exe explicitly and keeps every recipe either a single native
+# cmd command or a one-line `pwsh -Command` call: PowerShell 7 is already a
+# hard prerequisite for this whole tool, so leaning on it for anything with
+# real logic (conditionals, existence checks) is far more reliable than
+# reimplementing the same thing in cmd.exe's own batch scripting language.
+#
+# Usage: make -f Makefile.windows <target>
+SHELL := cmd.exe
+.SHELLFLAGS := /c
+
+.PHONY: help check cluster run teardown all full demo-setup interface electron-installer
+
+help:
+	@echo.
+	@echo   k8s-perftest -- Ferramenta de perfilamento de recursos para aplicacoes em kubernetes
+	@echo.
+	@echo   make check ....................... verifica se kind/kubectl/k6/docker/powershell-yaml estao instalados e prontos
+	@echo   make cluster ..................... cria o cluster kind
+	@echo   make teardown .................... remove o cluster kind
+	@echo   make run CONFIG=caminho.yaml ..... faz o deploy + roda a matriz de recursos para uma config
+	@echo   make all CONFIG=caminho.yaml ..... cluster + run, cluster permanece ativo
+	@echo   make full CONFIG=caminho.yaml .... cluster + run + teardown
+	@echo   make interface ................... sobe a API (porta 8026) e o frontend (porta escolhida pelo Vite) em janelas separadas
+	@echo   make electron-installer .......... gera o instalador .exe do desktop app (Electron)
+	@echo.
+	@echo   // Rode run/all/full sem CONFIG e ele demonstra o exemplo httpbin ja incluso
+	@echo   (copiado de templates\ para manifests\, loadtest\ e configs\ no primeiro uso).
+	@echo.
+	@echo   Use "make" (o Makefile padrao) em vez deste arquivo se estiver rodando de dentro do WSL ou Git Bash.
+
+check:
+	@where pwsh >nul 2>nul || (echo [FAIL] pwsh (PowerShell 7+) nao encontrado no PATH - instale: https://github.com/PowerShell/PowerShell && exit /b 1)
+	@echo [ OK ] pwsh
+	pwsh -File perftest.ps1 -Check
+
+cluster:
+	pwsh -File perftest.ps1 -Cluster
+
+# manifests/, loadtest/, and configs/ are gitignored (per-app, local-only) - a
+# fresh clone has none of it. If the caller didn't point CONFIG at their own
+# app, bootstrap the bundled httpbin example from templates/ so run/all/full
+# have something real to execute out of the box. Mirrors the default
+# Makefile's demo-setup target, via pwsh instead of `[ ]`/`mkdir -p`/`cp`.
+demo-setup:
+	@pwsh -NoProfile -Command "if ('$(CONFIG)' -eq 'configs/example.yaml' -and -not (Test-Path 'configs/example.yaml')) { Write-Host 'Nenhum CONFIG informado - preparando o exemplo httpbin a partir de templates/ ...' -ForegroundColor Yellow; New-Item -ItemType Directory -Force -Path manifests, loadtest, configs | Out-Null; Copy-Item templates/manifest.example.yaml manifests/httpbin.yaml -Force; Copy-Item templates/loadtest.example.js loadtest/httpbin.js -Force; Copy-Item templates/config.example.yaml configs/example.yaml -Force }"
+
+run: demo-setup
+	@if "$(CONFIG)"=="" (echo Uso: make -f Makefile.windows run CONFIG=caminho.yaml & exit /b 1)
+	pwsh -File perftest.ps1 -Run -Config "$(CONFIG)"
+
+teardown:
+	pwsh -File perftest.ps1 -Teardown
+
+all: demo-setup
+	@if "$(CONFIG)"=="" (echo Uso: make -f Makefile.windows all CONFIG=caminho.yaml & exit /b 1)
+	pwsh -File perftest.ps1 -All -Config "$(CONFIG)"
+
+full: demo-setup
+	@if "$(CONFIG)"=="" (echo Uso: make -f Makefile.windows full CONFIG=caminho.yaml & exit /b 1)
+	pwsh -File perftest.ps1 -Full -Config "$(CONFIG)"
+
+# interface/API and interface/frontend are separate npm projects (node_modules
+# gitignored) - install on first run, then start both dev servers. Unlike the
+# default Makefile's `trap 'kill 0'` (POSIX job control has no cmd.exe
+# equivalent), each server gets its own console window via `start` - close a
+# window (or Ctrl+C inside it) to stop that one server.
+interface:
+	@if not exist interface\API\node_modules (echo Instalando dependencias da API... && cd /d interface\API && npm install)
+	@if not exist interface\frontend\node_modules (echo Instalando dependencias do frontend... && cd /d interface\frontend && npm install)
+	@echo Subindo API (http://localhost:8026) e frontend, cada um em sua propria janela - feche a janela (ou Ctrl+C nela) pra parar aquele servidor.
+	start "perftest-api" cmd /k "cd /d interface\API && npm run dev"
+	start "perftest-frontend" cmd /k "cd /d interface\frontend && npm run dev"
+
+# Builds a single-file Windows installer: compiles the API, builds the
+# frontend as a static SPA (not the SSR dev build), then packages both plus
+# the PowerShell engine into one electron-builder NSIS .exe.
+electron-installer:
+	@echo Compilando a API...
+	cd /d interface\API && npm run build
+	@echo Compilando o frontend (build estatico)...
+	cd /d interface\frontend && npm run build:electron
+	@echo Empacotando o instalador Electron...
+	cd /d interface\electron && npm run package
+	@echo Instalador pronto em interface\electron\release\
