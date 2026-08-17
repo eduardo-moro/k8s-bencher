@@ -30,22 +30,33 @@ function Invoke-PerftestRun {
     $timestamp = (Get-Date).ToString('yyyy-MM-ddTHH-mm-ss')
     $outputDir = Join-Path $DataRootPath "output/$($parsedConfig.name)-$timestamp"
     Invoke-PerftestMatrix -Config $parsedConfig -OutputDir $outputDir
+    $outputDir
 }
 
 $effectiveDataRoot = if ($DataRoot) { $DataRoot } else { $PSScriptRoot }
+# Captured here (not in the API's Node wrapper) so the total wall-clock time -
+# cluster create + matrix + teardown - survives even if the API dev server
+# restarts mid-run, and so it's recorded for CLI-triggered runs (`make full`)
+# too, not just ones started from the web UI.
+$scriptStartTime = Get-Date
 
 switch ($PSCmdlet.ParameterSetName) {
     'Cluster'  { New-PerftestCluster }
-    'Run'      { Invoke-PerftestRun -ConfigPath $Config -DataRootPath $effectiveDataRoot }
+    'Run'      {
+        $outputDir = Invoke-PerftestRun -ConfigPath $Config -DataRootPath $effectiveDataRoot
+        Write-PerftestRunMeta -OutputDir $outputDir -StartTime $scriptStartTime
+    }
     'Teardown' { Remove-PerftestCluster }
     'All' {
         New-PerftestCluster
-        Invoke-PerftestRun -ConfigPath $Config -DataRootPath $effectiveDataRoot
+        $outputDir = Invoke-PerftestRun -ConfigPath $Config -DataRootPath $effectiveDataRoot
+        Write-PerftestRunMeta -OutputDir $outputDir -StartTime $scriptStartTime
     }
     'Full' {
         New-PerftestCluster
-        Invoke-PerftestRun -ConfigPath $Config -DataRootPath $effectiveDataRoot
+        $outputDir = Invoke-PerftestRun -ConfigPath $Config -DataRootPath $effectiveDataRoot
         Remove-PerftestCluster
+        Write-PerftestRunMeta -OutputDir $outputDir -StartTime $scriptStartTime
     }
     'Check' {
         $ready = Test-PerftestPrerequisites

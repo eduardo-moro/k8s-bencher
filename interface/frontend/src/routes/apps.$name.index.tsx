@@ -5,10 +5,19 @@ import { ArrowLeft, FolderClock, Pencil, Play, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { LogView } from "@/components/LogView";
+import { PodLogView } from "@/components/PodLogView";
+import { PodResourceChart } from "@/components/PodResourceChart";
+import { RunPipeline } from "@/components/RunPipeline";
 import { StatusBadge } from "@/components/StatusBadge";
 import { useCancelRun, useCurrentJob, useStartRun } from "@/hooks/useJob";
-import { api, formatElapsed, isActive } from "@/lib/api";
+import { api, formatElapsed, isActive, type AppDetail } from "@/lib/api";
 import { estimateRunSeconds, formatEstimate } from "@/lib/estimate";
+import { computeCombos, parseComboProgress, type ComboProgress } from "@/lib/runProgress";
+import { cn } from "@/lib/utils";
+
+function expectedLevelCount(app: AppDetail) {
+  return app.resources.memory.length * app.resources.cpu.length;
+}
 
 export const Route = createFileRoute("/apps/$name/")({
   head: () => ({
@@ -42,15 +51,46 @@ function AppDetailPage() {
   const startRun = useStartRun();
   const cancel = useCancelRun();
   const [, tick] = useState(0);
+  const [selectedCombo, setSelectedCombo] = useState<{ memory: string; cpu: string } | null>(null);
+  const [autoFollow, setAutoFollow] = useState(true);
 
   const globallyRunning = isActive(job?.status);
   const thisJob = job?.appName === name ? job : undefined;
+
+  const combos: ComboProgress[] = app && thisJob ? parseComboProgress(thisJob.logTail, computeCombos(app)) : [];
+  const runningCombo = combos.find((c) => c.status === "running") ?? null;
+  const selectedIsLive =
+    !!thisJob &&
+    isActive(thisJob.status) &&
+    autoFollow &&
+    !!selectedCombo &&
+    selectedCombo.memory === runningCombo?.memory &&
+    selectedCombo.cpu === runningCombo?.cpu;
 
   useEffect(() => {
     if (!isActive(thisJob?.status)) return;
     const id = setInterval(() => tick((n) => n + 1), 1000);
     return () => clearInterval(id);
   }, [thisJob?.status]);
+
+  // A fresh run: go back to following whichever combo is executing right now.
+  useEffect(() => {
+    setAutoFollow(true);
+    setSelectedCombo(null);
+  }, [thisJob?.startedAt]);
+
+  // While auto-following, track the currently-running combo; a manual click
+  // (handleSelectCombo) turns this off so the user's choice sticks even
+  // after the matrix moves on to the next combo.
+  useEffect(() => {
+    if (!autoFollow) return;
+    setSelectedCombo(runningCombo ? { memory: runningCombo.memory, cpu: runningCombo.cpu } : null);
+  }, [autoFollow, runningCombo?.memory, runningCombo?.cpu]);
+
+  function handleSelectCombo(combo: ComboProgress) {
+    setAutoFollow(false);
+    setSelectedCombo({ memory: combo.memory, cpu: combo.cpu });
+  }
 
   if (error)
     return (
@@ -74,7 +114,7 @@ function AppDetailPage() {
           <h1 className="font-mono text-xl font-semibold tracking-tight">{app.name}</h1>
           <p className="text-sm text-muted-foreground">
             container <span className="font-mono text-foreground">{app.container}</span> ·{" "}
-            {app.resources.memory.length * app.resources.cpu.length} níveis
+            {expectedLevelCount(app)} níveis
           </p>
         </div>
         <div className="flex flex-col items-end gap-1">
@@ -97,7 +137,7 @@ function AppDetailPage() {
             </Button>
           </div>
           <span className="font-mono text-xs text-muted-foreground">
-            tempo estimado: {formatEstimate(estimateRunSeconds(app))}
+            tempo estimado: {formatEstimate(estimateRunSeconds(app, outputs ?? []))}
           </span>
         </div>
       </div>
@@ -134,8 +174,30 @@ function AppDetailPage() {
               )}
             </div>
           </CardHeader>
-          <CardContent>
-            <LogView text={thisJob.logTail} autoScroll={isActive(thisJob.status)} />
+          <CardContent className="grid gap-4">
+            <RunPipeline combos={combos} selected={selectedCombo} onSelect={handleSelectCombo} />
+            {selectedCombo && thisJob.outputDir && (
+              <>
+                <PodResourceChart
+                  name={name}
+                  folder={thisJob.outputDir}
+                  memory={selectedCombo.memory}
+                  cpu={selectedCombo.cpu}
+                  live={selectedIsLive}
+                />
+                <PodLogView
+                  name={name}
+                  folder={thisJob.outputDir}
+                  memory={selectedCombo.memory}
+                  cpu={selectedCombo.cpu}
+                  live={selectedIsLive}
+                />
+              </>
+            )}
+            <div>
+              <p className="mb-1 font-mono text-xs uppercase text-muted-foreground">log da execução (harness)</p>
+              <LogView text={thisJob.logTail} autoScroll={isActive(thisJob.status)} />
+            </div>
           </CardContent>
         </Card>
       )}
@@ -175,20 +237,41 @@ function AppDetailPage() {
             </div>
           ) : (
             <ul className="divide-y divide-border">
-              {outputs.map((o) => (
-                <li key={o.folder}>
-                  <Link
-                    to="/apps/$name/outputs/$folder"
-                    params={{ name, folder: o.folder }}
-                    className="flex items-center justify-between gap-3 py-2 hover:text-primary"
-                  >
-                    <span className="font-mono text-sm">{o.folder}</span>
-                    <span className="font-mono text-xs text-muted-foreground">
-                      {new Date(o.timestamp).toLocaleString()}
-                    </span>
-                  </Link>
-                </li>
-              ))}
+              {outputs.map((o) => {
+                const expected = expectedLevelCount(app);
+                const complete = o.rowCount >= expected;
+                return (
+                  <li key={o.folder}>
+                    <Link
+                      to="/apps/$name/outputs/$folder"
+                      params={{ name, folder: o.folder }}
+                      className="flex items-center justify-between gap-3 py-2 hover:text-primary"
+                    >
+                      <span className="font-mono text-sm">{o.folder}</span>
+                      <span className="flex items-center gap-2">
+                        <span
+                          className={cn(
+                            "rounded border px-1.5 py-0.5 font-mono text-[10px] uppercase tracking-wide",
+                            complete
+                              ? "border-success/40 bg-success/15 text-success"
+                              : "border-destructive/40 bg-destructive/15 text-destructive",
+                          )}
+                          title={
+                            complete
+                              ? "todos os níveis da matriz produziram resultado"
+                              : "execução interrompida antes de terminar todos os níveis"
+                          }
+                        >
+                          {o.rowCount}/{expected} {complete ? "completa" : "parcial"}
+                        </span>
+                        <span className="font-mono text-xs text-muted-foreground">
+                          {new Date(o.timestamp).toLocaleString()}
+                        </span>
+                      </span>
+                    </Link>
+                  </li>
+                );
+              })}
             </ul>
           )}
         </CardContent>
