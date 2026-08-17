@@ -1,5 +1,25 @@
 CONFIG ?= configs/example.yaml
 
+# Every recipe below is POSIX shell syntax (`if [ ]`, `&&`, `trap`, subshells...).
+# On native Windows, GNU Make falls back to cmd.exe when it can't find a real
+# `sh` on PATH - cmd.exe can't parse any of that, producing cryptic errors
+# like "'{' nao e reconhecido..." or "O sistema nao pode encontrar o caminho
+# especificado" (from `>/dev/null`). Git for Windows ships a real sh.exe, but
+# its installer only adds `Git\cmd` (the git.exe wrappers) to PATH, not
+# `Git\bin`/`Git\usr\bin` (the actual POSIX toolchain) - so make can't find it
+# via PATH alone even though it's sitting right there on disk. Pin SHELL to
+# it directly so `make` works the same from a plain Windows cmd/PowerShell
+# prompt as it does from WSL or Git Bash. No-op on WSL/Linux/macOS ($(OS)
+# isn't Windows_NT there) and a no-op if Git for Windows isn't installed at
+# one of these default locations (falls through to make's normal behavior).
+ifeq ($(OS),Windows_NT)
+  GIT_SH := $(firstword $(wildcard C:/Program Files/Git/bin/sh.exe) $(wildcard C:/Program Files/Git/usr/bin/sh.exe))
+  ifneq ($(strip $(GIT_SH)),)
+    SHELL := $(GIT_SH)
+    .SHELLFLAGS := -c
+  endif
+endif
+
 GREEN  := \033[0;32m
 RED    := \033[0;31m
 CYAN   := \033[0;36m
